@@ -1,0 +1,13 @@
+python-dotenv==1.1.0
+jupyterlab==4.3.6
+datasets==3.5.0
+pandas==2.2.3
+pinecone==6.0.2
+mcp==1.6.0
+openai==1.69.0
+openai-agents==0.0.8
+gradio==5.23.3
+soundfile==0.13.1
+fuzzywuzzy==0.18.0
+geocoder==1.38.1
+geopy==2.4.1
