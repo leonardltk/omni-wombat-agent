@@ -313,23 +313,67 @@ async def gradio_query_handler(user_query: str, query_mode: str):
         # Process the query asynchronously
         result = await process_query(user_query, query_mode)
         
-        # Format output for Gradio
+        # Prepare default containers
+        grab_dict: Dict[str, Any] = {}
+        gojek_dict: Dict[str, Any] = {}
+        # NEW: containers for plain-text results
+        grab_result_str: str = ""
+        gojek_result_str: str = ""
+        
+        # Populate the per-platform dicts if we have any results
+        if result.get("results"):
+            for res in result["results"]:
+                print(f"{color_yellow}res = {json.dumps(res, indent=4, ensure_ascii=False)}{color_reset}")
+                # Determine which platform this result belongs to
+                platform_is_grab = res.get("server_index") == 0 or str(res.get("server_url", "")).endswith(":7860/gradio_api/mcp/sse")
+                platform_is_gojek = res.get("server_index") == 1 or str(res.get("server_url", "")).endswith(":7862/gradio_api/mcp/sse")
+
+                # Extract the structured result_dict if the call succeeded
+                if res.get("success") and res.get("response"):
+                    # NEW: extract plain text result string
+                    extracted_result = res["response"].get("result", "")
+                    extracted_dict = res["response"].get("result_dict", {})
+                print(f"{color_yellow}extracted_result = {extracted_result}{color_reset}")
+                print(f"{color_yellow}extracted_dict = {extracted_dict}{color_reset}")
+
+                if platform_is_grab:
+                    grab_dict = extracted_dict
+                    grab_result_str = extracted_result
+                elif platform_is_gojek:
+                    gojek_dict = extracted_dict
+                    gojek_result_str = extracted_result
+
+        # Build messages / JSON payloads for the three code components
         if result["error"]:
             status_message = f"❌ Error: {result['error']}"
-            json_output = {"error": result["error"]}
+            overall_json_obj = {"error": result["error"]}
         else:
-            status_message = f"✅ Query processed successfully!"
-            json_output = {
+            status_message = "✅ Query processed successfully!"
+            overall_json_obj = {
                 "summary": result["summary"],
-                "results": result["results"]
+                "results": result["results"],
             }
         
-        return status_message, json.dumps(json_output, indent=2)
+        # Return strings for each Code component (Grab, Gojek, Overall)
+        return (
+            status_message,
+            grab_result_str,
+            gojek_result_str,
+            json.dumps(grab_dict, indent=4, ensure_ascii=False),
+            json.dumps(gojek_dict, indent=4, ensure_ascii=False),
+            json.dumps(overall_json_obj, indent=4, ensure_ascii=False),
+        )
         
     except Exception as e:
         error_msg = f"❌ Unexpected error: {str(e)}"
         error_json = {"error": str(e), "traceback": traceback.format_exc()}
-        return error_msg, json.dumps(error_json, indent=2)
+        # On unexpected exception, still return placeholders for Grab/Gojek boxes
+        return error_msg, \
+            "", \
+            "", \
+            json.dumps({}), \
+            json.dumps({}), \
+            json.dumps(error_json, indent=4, ensure_ascii=False)
 
 def create_gradio_interface():
     """Create and return the Gradio interface."""
@@ -339,7 +383,7 @@ def create_gradio_interface():
         gr.Markdown("Query multiple MCP servers (Grab & Gojek) and see parallel results")
         
         with gr.Row():
-            with gr.Column(scale=2):
+            with gr.Column(scale=1):
                 user_input = gr.Textbox(
                     label="Your Query",
                     placeholder="e.g., 'I want to go from Orchard Road to MBS' or 'Order pizza from Pizza Hut to my home'",
@@ -356,17 +400,18 @@ def create_gradio_interface():
                 submit_btn = gr.Button("🔍 Submit Query", variant="primary")
                 
             with gr.Column(scale=1):
-                gr.Markdown("### 📖 Instructions")
-                gr.Markdown("""
-                - **Single Server**: Query only Grab or Gojek
-                - **Parallel**: Query both servers simultaneously
-                - **Full Response**: Include LLM response + MCP calls
-                - **MCP Only**: Show only tool calls and results
-                
-                **Example Queries:**
-                - Transport: "I want to go from Orchard Road to MBS"
-                - Food: "Order pizza from Pizza Hut to my home"
-                """)
+                # Example inputs
+                gr.Examples(
+                    examples=[
+                        ["I want to go from Orchard Road to Marina Bay Sands at 6pm", "Parallel (Both Servers)"],
+                        ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (Both Servers)"],
+                        ["Book ride to Marina Bay Sands", "Parallel (Both Servers)"],
+                        ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)"],
+                        # ["Book a GrabTaxi from Changi Airport to CBD", "Single Server (Grab)"],
+                        # ["Order nasi lemak from local restaurant to office", "Single Server (Gojek)"],
+                    ],
+                    inputs=[user_input, query_mode]
+                )
         
         with gr.Row():
             status_output = gr.Textbox(
@@ -374,33 +419,65 @@ def create_gradio_interface():
                 interactive=False,
                 lines=1
             )
-        
+
+        # --- individual platform JSON outputs ---
+        with gr.Row():
+            with gr.Column(scale=1):
+                grab_text_output = gr.Textbox(
+                    label="Grab Message",
+                    interactive=False,
+                    lines=4,
+                )
+                grab_json_output = gr.Code(
+                    label="Grab Response (JSON)",
+                    language="json",
+                    lines=12,
+                )
+            
+            with gr.Column(scale=1):
+                gojek_text_output = gr.Textbox(
+                    label="Gojek Message",
+                    interactive=False,
+                    lines=4,
+                )
+                gojek_json_output = gr.Code(
+                    label="Gojek Response (JSON)",
+                    language="json",
+                    lines=12,
+                )
+
+        # Existing aggregated results box
         with gr.Row():
             json_output = gr.Code(
                 label="Results (JSON)",
                 language="json",
-                lines=20
+                lines=20,
             )
         
         # Event handler
         submit_btn.click(
             fn=gradio_query_handler,
             inputs=[user_input, query_mode],
-            outputs=[status_output, json_output]
+            outputs=[
+                status_output,
+                grab_text_output, gojek_text_output,
+                grab_json_output, gojek_json_output,
+                json_output
+            ],
         )
         
-        # Example inputs
-        gr.Examples(
-            examples=[
-                ["I want to go from Orchard Road to Marina Bay Sands at 6pm", "Parallel (Both Servers)"],
-                ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (Both Servers)"],
-                ["Book ride to Marina Bay Sands", "Parallel (Both Servers)"],
-                    ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)"],
-                        ["Book a GrabTaxi from Changi Airport to CBD", "Single Server (Grab)"],
-                        ["Order nasi lemak from local restaurant to office", "Single Server (Gojek)"],
-            ],
-            inputs=[user_input, query_mode]
-        )
+        # Instructions
+        gr.Markdown("### 📖 Instructions")
+        gr.Markdown("""
+        - **Single Server**: Query only Grab or Gojek
+        - **Parallel**: Query both servers simultaneously
+        - **Full Response**: Include LLM response + MCP calls
+        - **MCP Only**: Show only tool calls and results
+        
+        **Example Queries:**
+        - Transport: "I want to go from Orchard Road to MBS"
+        - Food: "Order pizza from Pizza Hut to my home"
+        """)
     
     return interface
 
@@ -446,4 +523,13 @@ Example queries:
     I want to go from Woodlands to CBD
     Order pizza from Pizza Hut to my home
     Order pizza from KFC to office
+
+"""
+"""
+tar -vcf checkpoints/v3.2-added+_respective_output_boxes.tar *.py
+    - MCP_server_gojek.py
+    - MCP_server_grab.py
+    - mistral_client_remote.py
+    - test_grab_services.py
+
 """

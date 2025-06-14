@@ -23,10 +23,10 @@ def grab_transport(
     """Book a Grab transport service.
     
     Args:
-        destination: Where to drop off the passenger. If not specified, prompt user to input destination.
-        pickup_location: Where to pick up the passenger. If not specified, Default to "<Current GPS location>" .
-        service_type: Type of service (GrabTaxi, GrabHitch, JustGrab). Default is JustGrab.
-        schedule_time: Schedule time for the pickup. If not specified by user, default to "now" .
+        destination: Where to drop off the passenger. If not specified, prompt user to input destination
+        pickup_location: Where to pick up the passenger. If not specified, Default to "<Current GPS location>"
+        service_type: Type of service (GrabTaxi, GrabHitch, JustGrab). Default is JustGrab
+        schedule_time: Schedule time for the pickup. If not specified by user, default to "<Current Time>"
         
     Returns:
         JSON string with booking details
@@ -42,7 +42,7 @@ def grab_transport(
         pickup_point = pickup_location.strip()
 
     # Determine whether this is a scheduled pickup
-    is_scheduled = bool(schedule_time != "now")
+    is_scheduled = bool(schedule_time != "<Current Time>")
 
     # Force supported service types for scheduled pickups
     if is_scheduled:
@@ -140,7 +140,7 @@ def main(port: int = 7860):
         inputs=[
             gr.Textbox(label="Pickup Location", placeholder="e.g., Orchard Road (leave blank for current location)"),
             gr.Textbox(label="Destination", placeholder="e.g., Marina Bay Sands"),
-            gr.Dropdown(choices=["GrabTaxi", "GrabHitch", "JustGrab"], label="Service Type", value="GrabTaxi"),
+            gr.Dropdown(choices=["GrabTaxi", "GrabHitch", "JustGrab"], label="Service Type", value="JustGrab"),
             gr.Textbox(label="Schedule Time (YYYY-MM-DD HH:MM) – optional", placeholder="e.g., 2024-12-31 18:30")
         ],
         outputs=gr.JSON(label="Transport Booking Details"),
