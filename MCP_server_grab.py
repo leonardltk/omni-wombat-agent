@@ -16,20 +16,26 @@ def _simulate_gps_location() -> str:
 
 def grab_transport(
     destination: str,
-    pickup_location: str,
-    service_type: str,
-    schedule_time: str,
+    pickup_location: str = "<Current GPS location>",
+    service_type: str = "JustGrab",
+    schedule_time: str = "<Current Time>",
 ) -> str:
     """Book a Grab transport service.
     
     Args:
         destination: Where to drop off the passenger. If not specified, prompt user to input destination
-        pickup_location: Where to pick up the passenger. If not specified, Default to "<Current GPS location>"
-        service_type: Type of service (GrabTaxi, GrabHitch, JustGrab). Default is JustGrab
-        schedule_time: Schedule time for the pickup. If not specified by user, default to "<Current Time>"
+        pickup_location: Where to pick up the passenger. MCP default: "<Current GPS location>"
+        service_type: Type of service (GrabTaxi, GrabHitch, JustGrab). MCP default: "JustGrab"
+        schedule_time: Schedule time for the pickup. MCP default: "<Current Time>"
         
     Returns:
         JSON string with booking details
+        
+    Note:
+        When using this function through MCP, if pickup_location or schedule_time are not provided,
+        they will automatically use the MCP default values:
+        - pickup_location defaults to "<Current GPS location>"
+        - schedule_time defaults to "<Current Time>"
     """
     print(f"\n--- {color_green}grab_transport({json.dumps(locals(), indent=4, ensure_ascii=False)}{color_reset})")
     # --- Simulated booking logic ---

@@ -25,12 +25,18 @@ def gojek_transport(
     
     Args:
         destination: Where to drop off the passenger. If not specified, prompt user to input destination
-        pickup_location: Where to pick up the passenger. If not specified, Default to "<Current GPS location>"
-        service_type: Type of service (GoRide, GoCar, GoBluebird). Default is GoRide
-        schedule_time: Schedule time for the pickup. If not specified by user, default to "<Current Time>"
+        pickup_location: Where to pick up the passenger. MCP default: "<Current GPS location>"
+        service_type: Type of service (GoRide, GoCar, GoBluebird). MCP default: "GoRide"
+        schedule_time: Schedule time for the pickup. MCP default: "<Current Time>"
         
     Returns:
         JSON string with booking details
+        
+    Note:
+        When using this function through MCP, if pickup_location or schedule_time are not provided,
+        they will automatically use the MCP default values:
+        - pickup_location defaults to "<Current GPS location>"
+        - schedule_time defaults to "<Current Time>"
     """
     print(f"\n--- {color_cyan}gojek_transport({json.dumps(locals(), indent=4, ensure_ascii=False)}{color_reset})")
     # --- Simulated booking logic ---
@@ -136,7 +142,8 @@ def main(port: int = 7862):
         inputs=[
             gr.Textbox(label="Pickup Location", placeholder="e.g., Orchard Road"),
             gr.Textbox(label="Destination", placeholder="e.g., Marina Bay Sands"),
-            gr.Dropdown(choices=["GoRide", "GoCar", "GoBluebird"], label="Service Type", value="GoRide")
+            gr.Dropdown(choices=["GoRide", "GoCar", "GoBluebird"], label="Service Type", value="GoRide"),
+            gr.Textbox(label="Schedule Time (YYYY-MM-DD HH:MM) – optional", placeholder="e.g., 2024-12-31 18:30")
         ],
         outputs=gr.JSON(label="Transport Booking Details"),
         title="Gojek Transport",
