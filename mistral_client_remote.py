@@ -6,6 +6,7 @@ import asyncio
 import traceback
 from pprint import pprint
 
+import gradio as gr
 from mistralai import Mistral
 from mistralai.extra.run.context import RunContext
 from mistralai.extra.mcp.sse import MCPClientSSE, SSEServerParams
@@ -17,6 +18,8 @@ from typing import List, Optional, Union, Any, Dict
 from dotenv import load_dotenv
 
 color_blue = "\033[94m"
+color_yellow = "\033[93m"
+color_red = "\033[91m"
 color_reset = "\033[0m"
 
 load_dotenv()
@@ -66,31 +69,37 @@ class MCPClient:
         # Use provided output format or default to generic
         response_format = GenericResponse
         
+        response_output_dict = {}
         try:
             # Create a new MCP client for each request to avoid connection reuse issues
+            print(f"{color_yellow}Creating new MCP client for server {server_index + 1} ({server_url}){color_reset}")
             mcp_client = MCPClientSSE(sse_params=SSEServerParams(url=server_url, timeout=100))
             
             # Create run context
+            print(f"{color_yellow}# Create run context{color_reset}")
             async with RunContext(
                 model=MODEL,
                 output_format=response_format,
             ) as run_ctx:
                 # Register the MCP client
+                print(f"{color_yellow}# Register the MCP client{color_reset}")
                 await run_ctx.register_mcp_client(mcp_client=mcp_client)
                 
                 # Run the query
+                print(f"{color_yellow}# Run the query{color_reset}")
                 run_result = await self.client.beta.conversations.run_async(
                     run_ctx=run_ctx,
                     inputs=user_input,
                 )
 
                 # Extract the response
+                print(f"{color_yellow}# Extract the response{color_reset}")
                 response = dict(run_result.output_as_model)
                 print(f"{color_blue}Response received:")
                 pprint(response)
                 print(color_reset)
                 
-                return {
+                response_output_dict = {
                     "success": True,
                     "response": response,
                     "conversation_id": run_result.conversation_id,
@@ -98,10 +107,9 @@ class MCPClient:
                     "server_url": server_url,
                     "server_index": server_index,
                 }
-                
         except Exception as e:
             traceback.print_exc()
-            error_response = {
+            response_output_dict = {
                 "success": False,
                 "response": None,
                 "conversation_id": None,
@@ -110,7 +118,8 @@ class MCPClient:
                 "server_index": server_index,
             }
             print(f"{color_blue}Error occurred on server {server_index + 1}: {e}{color_reset}")
-            return error_response
+
+        return response_output_dict
 
     async def query_parallel(self, user_input: str, server_urls: List[str] = []) -> List[dict]:
         """Send a query to multiple MCP servers in parallel and return merged results.
@@ -176,109 +185,250 @@ class MCPClient:
             traceback.print_exc()
             return []
 
-def get_user_input() -> str:
-    """Get user input from command line."""
-    print(f"{color_blue}\n" + "="*60 + color_reset)
-    print(f"{color_blue}MCP Client - Enter your query (or 'quit' to exit){color_reset}")
-    print(f"{color_blue}" + "="*60 + color_reset)
-    
-    query = input("\nYour query: ").strip()
-    return query
+# Global client instance
+client = None
 
-async def interactive_mode():
-    """Run the client in interactive mode."""
-    print(f"{color_blue}Starting interactive MCP client...{color_reset}")
+def initialize_client():
+    """Initialize the global MCP client."""
+    global client
+    if client is None:
+        print(f"{color_yellow}Initializing MCP client...{color_reset}")
+        default_servers = [
+            "http://127.0.0.1:7860/gradio_api/mcp/sse",
+            "http://127.0.0.1:7862/gradio_api/mcp/sse"
+        ]
+        try:
+            client = MCPClient(server_urls=default_servers)
+            return True, "Client initialized successfully!"
+        except Exception as e:
+            return False, f"Error initializing client: {str(e)}"
+    print(f"{color_yellow}Client already initialized{color_reset}")
+    return True, "Client already initialized"
+
+async def process_query(user_query: str, query_mode: str):
+    """Process a user query through the MCP client."""
+    global client
     
-    # Configure multiple servers
-    default_servers = [
-        "http://127.0.0.1:7860/gradio_api/mcp/sse",
-        "http://127.0.0.1:7862/gradio_api/mcp/sse"  # Second server on different port
-    ]
+    if not user_query.strip():
+        return {
+            "error": "Please enter a valid query",
+            "results": None,
+            "summary": None
+        }
+    
+    # Initialize client if needed
+    success, message = initialize_client()
+    if not success:
+        return {
+            "error": message,
+            "results": None,
+            "summary": None
+        }
     
     try:
-        # Initialize the client with multiple servers
-        client = MCPClient(server_urls=default_servers)
-        
-        while True:
-            user_query = get_user_input()
+        if query_mode == "Single Server (Grab)":
+            # Query first server (Grab)
+            print(f"{color_yellow}Querying first server (Grab){color_reset}")
+            result = await client.query_single_server(user_query, client.server_urls[0], 0)
             
-            if user_query.lower() in ['quit', 'exit', 'q']:
-                print(f"{color_blue}Goodbye!{color_reset}")
-                break
-            
-            if not user_query:
-                print(f"{color_blue}Please enter a valid query.{color_reset}")
-                continue
-            
-            # Ask user which mode to use
-            print(f"{color_blue}Choose mode:{color_reset}")
-            print(f"{color_blue}1. Single server (first server only){color_reset}")
-            print(f"{color_blue}2. Parallel query (all configured servers){color_reset}")
-            
-            mode = input("Enter mode (1/2) [default: 1]: ").strip()
-            if not mode:
-                mode = "1"
-            
-            try:
-                if mode == "1":
-                    # Single server query
-                    # result = await client.query_single_server(user_query, client.server_urls[0], 0)
-                    result = await client.query_single_server(user_query, client.server_urls[1], 1)
-                    if result["success"]:
-                        print(f"{color_blue}\n✅ Query processed successfully!{color_reset}")
-                        print(f"{color_blue}Conversation ID: {result.get('conversation_id', 'N/A')}{color_reset}")
-                        pprint(result["response"])
-                    else:
-                        print(f"{color_blue}\n❌ Error: {result['error']}{color_reset}")
+            if result["success"]:
+                summary = {
+                    "mode": "Single Server",
+                    "server": "Grab (7860)",
+                    "status": "✅ Success",
+                    "conversation_id": result.get('conversation_id', 'N/A'),
+                }
+                return {
+                    "error": None,
+                    "results": [result],
+                    "summary": summary
+                }
+            else:
+                return {
+                    "error": f"Server error: {result['error']}",
+                    "results": [result],
+                    "summary": {"mode": "Single Server", "status": "❌ Failed"}
+                }
                 
-                elif mode == "2":
-                    # Parallel query to all servers
-                    results = await client.query_parallel(user_query, client.server_urls)
-                    print(f"{color_blue}\n📊 Results from {len(results)} servers:{color_reset}")
-                    for i, result in enumerate(results):
-                        print(f"{color_blue}\n--- Server {i + 1} ({result.get('server_url', 'unknown')}) ---{color_reset}")
-                        if result["success"]:
-                            print(f"{color_blue}✅ Success - Conversation ID: {result.get('conversation_id', 'N/A')}{color_reset}")
-                            pprint(result["response"])
-                        else:
-                            print(f"{color_blue}❌ Error: {result['error']}{color_reset}")
-
-                else:
-                    print(f"{color_blue}Invalid mode selected. Please choose 1, 2, or 3.{color_reset}")
-                    
-            except Exception as e:
-                print(f"{color_blue}\n❌ Execution error: {e}{color_reset}")
-                traceback.print_exc()
+        elif query_mode == "Single Server (Gojek)":
+            # Query second server (Gojek)
+            result = await client.query_single_server(user_query, client.server_urls[1], 1)
+            
+            if result["success"]:
+                summary = {
+                    "mode": "Single Server",
+                    "server": "Gojek (7862)",
+                    "status": "✅ Success",
+                    "conversation_id": result.get('conversation_id', 'N/A'),
+                }
+                return {
+                    "error": None,
+                    "results": [result],
+                    "summary": summary
+                }
+            else:
+                return {
+                    "error": f"Server error: {result['error']}",
+                    "results": [result],
+                    "summary": {"mode": "Single Server", "status": "❌ Failed"}
+                }
                 
-    except KeyboardInterrupt:
-        print(f"{color_blue}\n\nOperation cancelled by user.{color_reset}")
+        elif query_mode == "Parallel (Both Servers)":
+            # Query both servers in parallel
+            results = await client.query_parallel(user_query, client.server_urls)
+            
+            successful_results = [r for r in results if r["success"]]
+            failed_results = [r for r in results if not r["success"]]
+            
+            summary = {
+                "mode": "Parallel",
+                "servers": ["Grab (7860)", "Gojek (7862)"],
+                "successful": len(successful_results),
+                "failed": len(failed_results),
+                "total": len(results),
+                "status": f"✅ {len(successful_results)}/{len(results)} successful",
+            }
+            
+            return {
+                "error": None if successful_results else "All servers failed",
+                "results": results,
+                "summary": summary
+            }
+            
     except Exception as e:
-        print(f"{color_blue}\nError initializing client: {e}{color_reset}")
+        traceback.print_exc()
+        print(f"{color_red}Error occurred: {e}{color_reset}")
+        return {
+            "error": f"Execution error: {str(e)}",
+            "results": None,
+            "summary": {"status": "❌ Exception occurred"}
+        }
 
-async def main():
-    """Main entry point."""
-    import sys
+async def gradio_query_handler(user_query: str, query_mode: str):
+    """Gradio-compatible async handler for query processing."""
+    try:
+        # Process the query asynchronously
+        result = await process_query(user_query, query_mode)
+        
+        # Format output for Gradio
+        if result["error"]:
+            status_message = f"❌ Error: {result['error']}"
+            json_output = {"error": result["error"]}
+        else:
+            status_message = f"✅ Query processed successfully!"
+            json_output = {
+                "summary": result["summary"],
+                "results": result["results"]
+            }
+        
+        return status_message, json.dumps(json_output, indent=2)
+        
+    except Exception as e:
+        error_msg = f"❌ Unexpected error: {str(e)}"
+        error_json = {"error": str(e), "traceback": traceback.format_exc()}
+        return error_msg, json.dumps(error_json, indent=2)
 
-    # Interactive mode
-    await interactive_mode()
+def create_gradio_interface():
+    """Create and return the Gradio interface."""
+    
+    with gr.Blocks(title="MCP Client - Multi-Server Query Interface") as interface:
+        gr.Markdown("# 🚀 MCP Client - Multi-Server Query Interface")
+        gr.Markdown("Query multiple MCP servers (Grab & Gojek) and see parallel results")
+        
+        with gr.Row():
+            with gr.Column(scale=2):
+                user_input = gr.Textbox(
+                    label="Your Query",
+                    placeholder="e.g., 'I want to go from Orchard Road to MBS' or 'Order pizza from Pizza Hut to my home'",
+                    lines=3
+                )
+                
+                with gr.Row():
+                    query_mode = gr.Radio(
+                        choices=["Single Server (Grab)", "Single Server (Gojek)", "Parallel (Both Servers)"],
+                        label="Query Mode",
+                        value="Parallel (Both Servers)"
+                    )
+                
+                submit_btn = gr.Button("🔍 Submit Query", variant="primary")
+                
+            with gr.Column(scale=1):
+                gr.Markdown("### 📖 Instructions")
+                gr.Markdown("""
+                - **Single Server**: Query only Grab or Gojek
+                - **Parallel**: Query both servers simultaneously
+                - **Full Response**: Include LLM response + MCP calls
+                - **MCP Only**: Show only tool calls and results
+                
+                **Example Queries:**
+                - Transport: "I want to go from Orchard Road to MBS"
+                - Food: "Order pizza from Pizza Hut to my home"
+                """)
+        
+        with gr.Row():
+            status_output = gr.Textbox(
+                label="Status",
+                interactive=False,
+                lines=1
+            )
+        
+        with gr.Row():
+            json_output = gr.Code(
+                label="Results (JSON)",
+                language="json",
+                lines=20
+            )
+        
+        # Event handler
+        submit_btn.click(
+            fn=gradio_query_handler,
+            inputs=[user_input, query_mode],
+            outputs=[status_output, json_output]
+        )
+        
+        # Example inputs
+        gr.Examples(
+            examples=[
+                ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (Both Servers)"],
+                ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)"],
+                ["Book a GrabTaxi from Changi Airport to CBD", "Single Server (Grab)"],
+                ["Order nasi lemak from local restaurant to office", "Single Server (Gojek)"],
+            ],
+            inputs=[user_input, query_mode]
+        )
+    
+    return interface
+
+def main():
+    """Main entry point for the Gradio app."""
+    print(f"{color_blue}Starting MCP Client Gradio Interface...{color_reset}")
+    
+    # Initialize client on startup
+    success, message = initialize_client()
+    print(f"{color_blue}{message}{color_reset}")
+    
+    # Create and launch Gradio interface
+    interface = create_gradio_interface()
+    interface.launch(
+        server_port=7863,
+        share=False,
+        debug=True
+    )
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
 
 """
-Usage Examples:
-
-# Interactive mode with multiple servers
-clear; python mistral_client_remote.py
-
-# Make sure both MCP servers are running first:
-clear;
-if :; then
+Usage:
+1. Start the MCP servers:
     python MCP_server_grab.py --port 7860 &
     python MCP_server_gojek.py --port 7862 &
-fi
-jobs
-wait
+
+2. Start this Gradio app:
+    clear; \
+    python mistral_client_remote.py
+
+3. Open browser to http://localhost:7863
 
 Example queries:
     I want to go from Orchard Road to MBS
