@@ -25,6 +25,8 @@ import pdb
 import json
 import traceback
 from typing import Tuple, Any, Dict
+from pathlib import Path
+import glob
 
 import gradio as gr
 import soundfile as sf
@@ -91,6 +93,34 @@ def transcribe_audio(audio_path: str) -> str:
 
     return transcription_text.strip()
 
+# -----------------------------------------------------------------------------
+# Audio file utilities
+# -----------------------------------------------------------------------------
+def load_default_audio_files():
+    """Load default audio files from the audio_files directory."""
+    audio_dir = Path("audio_files")
+    if not audio_dir.exists():
+        print(f"{COLOR_CYAN}Audio directory not found: {audio_dir}{COLOR_RESET}")
+        return []
+    
+    # Supported audio formats
+    audio_extensions = ["*.wav", "*.mp3", "*.m4a", "*.flac", "*.ogg"]
+    audio_files = []
+    
+    for ext in audio_extensions:
+        audio_files.extend(glob.glob(str(audio_dir / ext)))
+    
+    # Sort files for consistent ordering
+    audio_files.sort()
+    
+    print(f"{COLOR_CYAN}Found {len(audio_files)} default audio files:{COLOR_RESET}")
+    for file in audio_files:
+        print(f"{COLOR_CYAN}  - {file}{COLOR_RESET}")
+    
+    return audio_files
+
+# Load default audio files at startup
+DEFAULT_AUDIO_FILES = load_default_audio_files()
 
 # -----------------------------------------------------------------------------
 # Main handler that ties everything together
@@ -259,6 +289,16 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
                 info="Keep conversation context for follow-up questions"
             )
 
+    # Add audio examples section
+    if DEFAULT_AUDIO_FILES:
+        with gr.Row():
+            gr.Markdown("### 🎵 Default Audio Examples")
+            gr.Examples(
+                examples=[[audio_file] for audio_file in DEFAULT_AUDIO_FILES],
+                inputs=[audio_input],
+                label="Click to load sample audio files"
+            )
+
     with gr.Row():
         submit_btn = gr.Button("✨ Transcribe & Query", variant="primary")
         clear_btn = gr.Button("🗑️ Clear History", variant="secondary")
@@ -304,6 +344,18 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
         fn=clear_history,
         outputs=[status_message_output],
     )
+
+    # Add instructions section
+    gr.Markdown("### 📖 Instructions")
+    gr.Markdown(f"""
+    - **Record Audio**: Use the microphone button to record your voice
+    - **Upload Audio**: Click the upload button to select an audio file
+    - **Default Examples**: Use the sample audio files above to test the system
+    - **Query Modes**: Choose between single server or parallel processing
+    - **History**: Enable to maintain conversation context
+    
+    **Available Sample Files**: {len(DEFAULT_AUDIO_FILES)} audio files loaded from `audio_files/` directory
+    """)
 
 if __name__ == "__main__":
     demo.launch(server_port=7864, share=False, debug=True)
