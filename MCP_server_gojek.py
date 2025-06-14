@@ -6,43 +6,73 @@ import random
 import argparse
 import pdb
 
-def gojek_transport(pickup_location: str, destination: str, service_type: str = "GoRide") -> str:
+color_cyan = "\033[96m"
+color_reset = "\033[0m"
+print(f"{color_cyan}MCP_server_gojek.py 123 {color_reset}")
+
+def _simulate_gps_location() -> str:
+    """Simulate a GPS lookup and return the current coordinates as 'longitude, latitude'."""
+    print(f"\n--- _simulate_gps_location()")
+    return f"<Current GPS location>"
+
+def gojek_transport(
+    destination: str,
+    pickup_location: str,
+    service_type: str,
+    schedule_time: str,
+) -> str:
     """Book a Gojek transport service.
     
     Args:
-        pickup_location: Where to pick up the passenger
-        destination: Where to drop off the passenger
-        service_type: Type of service (GoRide, GoCar, GoBluebird)
+        destination: Where to drop off the passenger. If not specified, prompt user to input destination.
+        pickup_location: Where to pick up the passenger. If not specified, Default to "<Current GPS location>" .
+        service_type: Type of service (GoRide, GoCar, GoBluebird). Default is GoRide.
+        schedule_time: Schedule time for the pickup. If not specified by user, default to "now" .
         
     Returns:
         JSON string with booking details
     """
-    # Simulate booking logic
+    print(f"\n--- {color_cyan}gojek_transport({json.dumps(locals(), indent=4, ensure_ascii=False)}{color_reset})")
+    # --- Simulated booking logic ---
     booking_id = f"GJK{random.randint(100000, 999999)}"
-    estimated_time = random.randint(5, 20)
-    estimated_fare = random.randint(8, 50)
-    
-    # Adjust fare based on service type
+
+    # Resolve pickup point (use GPS fallback if none provided)
+    if pickup_location.strip() == '':
+        pickup_point = _simulate_gps_location()
+    else:
+        pickup_point = pickup_location.strip()
+
+    # Determine whether this is a scheduled pickup
+    is_scheduled = bool(schedule_time != "now")
+
+    # Force supported service types for scheduled pickups
+    if is_scheduled:
+        if service_type not in ["GoRide", "GoCar", "GoBluebird"]:
+            service_type = "GoRide"
+        timing = schedule_time
+    else:
+        timing = datetime.now().isoformat(timespec="seconds")
+
+    # Fare calculation (extended multiplier list)
     fare_multipliers = {
         "GoRide": 1.0,
         "GoCar": 0.7,
         "GoBluebird": 0.8
     }
-    estimated_fare = int(estimated_fare * fare_multipliers.get(service_type, 1.0))
-    
+    estimated_fare = int(random.randint(8, 50) * fare_multipliers.get(service_type, 1.0))
+
     result = {
         "platform": "Gojek",
-        "booking_id": booking_id,
-        "service_type": service_type,
-        "pickup_location": pickup_location,
-        "destination": destination,
-        "estimated_arrival_time": f"{estimated_time} minutes",
-        "estimated_fare": f"${estimated_fare}",
-        "status": "confirmed",
-        "driver_name": f"Driver {random.choice(['Mr A', 'Mr B', 'Mr C'])}"
+        "Pickup Point": pickup_point,
+        "Destination": destination,
+        "Timing": timing,
+        "Transport Type": service_type,
+        "Scheduled": is_scheduled,
     }
-    
-    return json.dumps(result, indent=2)
+    result_str = json.dumps(result, indent=4, ensure_ascii=False)
+    print(f"{color_cyan}result_str = {result_str}{color_reset}")
+
+    return result_str
 
 def gojek_food(restaurant: str, items: str, delivery_address: str) -> str:
     """Order food through GoFood.
@@ -55,6 +85,7 @@ def gojek_food(restaurant: str, items: str, delivery_address: str) -> str:
     Returns:
         JSON string with order details
     """
+    print(f"\n--- {color_cyan}gojek_food({json.dumps(locals(), indent=4, ensure_ascii=False)}{color_reset})")
     # Simulate food ordering logic
     order_id = f"GF{random.randint(100000, 999999)}"
     item_list = [item.strip() for item in items.split(',')]
@@ -88,19 +119,15 @@ def gojek_food(restaurant: str, items: str, delivery_address: str) -> str:
     
     result = {
         "platform": "Gojek",
-        "order_id": order_id,
-        "restaurant": restaurant,
-        "items": order_items,
-        "subtotal": f"${total_price:.2f}",
-        "delivery_fee": f"${delivery_fee:.2f}",
-        "total": f"${total_with_delivery:.2f}",
-        "delivery_address": delivery_address,
-        "estimated_delivery_time": f"{estimated_delivery} minutes",
-        "status": "confirmed",
-        "delivery_partner": f"Rider {random.choice(['Ali', 'John', 'Priya', 'Chen'])}"
+        "food items": item_list,
+        "sort_by": "Recommended",  # default value
+        "restrictions": [],         # default empty list
+        "delivery_mode": "Delivery",  # default value
+        "cuisine_type": [],        # default empty list
     }
-    
-    return json.dumps(result, indent=2)
+    result_str = json.dumps(result, indent=2)
+    print(f"{color_cyan}result_str = {result_str}{color_reset}")
+    return result_str
 
 def main(port: int = 7862):
     # Create separate interfaces for each function

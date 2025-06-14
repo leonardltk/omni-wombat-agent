@@ -34,6 +34,7 @@ print(f"{color_blue}MODEL = {MODEL}{color_reset}")
 # Generic structured output model for flexible responses
 class GenericResponse(BaseModel):
     result: str
+    result_dict: Dict[str, Any]
     status: bool
 
 class MCPClient:
@@ -91,11 +92,12 @@ class MCPClient:
                     run_ctx=run_ctx,
                     inputs=user_input,
                 )
+                print(f"{color_yellow}run_result = {run_result}{color_reset}")
 
                 # Extract the response
                 print(f"{color_yellow}# Extract the response{color_reset}")
                 response = dict(run_result.output_as_model)
-                print(f"{color_blue}Response received:")
+                print(f"{color_blue}response =")
                 pprint(response)
                 print(color_reset)
                 
@@ -107,6 +109,7 @@ class MCPClient:
                     "server_url": server_url,
                     "server_index": server_index,
                 }
+
         except Exception as e:
             traceback.print_exc()
             response_output_dict = {
@@ -389,10 +392,12 @@ def create_gradio_interface():
         # Example inputs
         gr.Examples(
             examples=[
+                ["I want to go from Orchard Road to Marina Bay Sands at 6pm", "Parallel (Both Servers)"],
                 ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (Both Servers)"],
-                ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)"],
-                ["Book a GrabTaxi from Changi Airport to CBD", "Single Server (Grab)"],
-                ["Order nasi lemak from local restaurant to office", "Single Server (Gojek)"],
+                ["Book ride to Marina Bay Sands", "Parallel (Both Servers)"],
+                    ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)"],
+                        ["Book a GrabTaxi from Changi Airport to CBD", "Single Server (Grab)"],
+                        ["Order nasi lemak from local restaurant to office", "Single Server (Gojek)"],
             ],
             inputs=[user_input, query_mode]
         )
@@ -421,8 +426,14 @@ if __name__ == "__main__":
 """
 Usage:
 1. Start the MCP servers:
-    python MCP_server_grab.py --port 7860 &
-    python MCP_server_gojek.py --port 7862 &
+    clear;
+    if :; then
+        python MCP_server_grab.py --port 7860 &
+        python MCP_server_gojek.py --port 7862 &
+    fi
+    jobs
+    wait
+
 
 2. Start this Gradio app:
     clear; \
