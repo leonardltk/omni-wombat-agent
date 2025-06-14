@@ -1,0 +1,1 @@
+Try to work on https://huggingface.co/Agents-MCP-Hackathon
