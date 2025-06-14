@@ -492,6 +492,7 @@ def main():
     # Create and launch Gradio interface
     interface = create_gradio_interface()
     interface.launch(
+        mcp_server=True,
         server_port=7863,
         share=False,
         debug=True
@@ -526,7 +527,7 @@ Example queries:
 
 """
 """
-tar -vcf checkpoints/v3.2-added+_respective_output_boxes.tar *.py
+tar -vcf checkpoints/v3.2-added_respective_output_boxes.tar *.py
     - MCP_server_gojek.py
     - MCP_server_grab.py
     - mistral_client_remote.py
