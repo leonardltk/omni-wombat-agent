@@ -148,8 +148,8 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
     Returns (in order):
         recognised_text,
         status_message,
-        grab_result_str,
-        gojek_result_str,
+        grab_reasoning_str,
+        gojek_reasoning_str,
         grab_json_str,
         gojek_json_str,
         overall_json_str,
@@ -159,7 +159,7 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         return (
             "",                           # recognised_text
             "❌ Error: No audio supplied",  # status_message
-            "", "",                     # grab_result_str, gojek_result_str
+            "", "",                     # grab_reasoning_str, gojek_reasoning_str
             json.dumps({}, indent=4),     # grab_json_str
             json.dumps({}, indent=4),     # gojek_json_str
             json.dumps({"error": "No audio supplied"}, indent=4),  # overall_json_str
@@ -176,7 +176,7 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         return (
             "",                           # recognised_text
             f"❌ Error: ASR failed: {e}",  # status_message
-            "", "",                     # grab_result_str, gojek_result_str
+            "", "",                     # grab_reasoning_str, gojek_reasoning_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),     # grab_json_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),     # gojek_json_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),  # overall_json_str
@@ -187,7 +187,7 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         return (
             "",                           # recognised_text
             "❌ Error: Could not recognise speech",  # status_message
-            "", "",                     # grab_result_str, gojek_result_str
+            "", "",                     # grab_reasoning_str, gojek_reasoning_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),     # grab_json_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),     # gojek_json_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),  # overall_json_str
@@ -215,8 +215,8 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
 
     # If the aggregator returned the expected 7-element tuple, unpack it.
     status_message = ""
-    grab_result_str = ""
-    gojek_result_str = ""
+    grab_reasoning_str = ""
+    gojek_reasoning_str = ""
     grab_json_str = json.dumps({}, indent=4)
     gojek_json_str = json.dumps({}, indent=4)
     overall_json_str = json.dumps({}, indent=4)
@@ -225,8 +225,8 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
     if isinstance(response, (list, tuple)) and len(response) == 7:
         (
             status_message,
-            grab_result_str,
-            gojek_result_str,
+            grab_reasoning_str,
+            gojek_reasoning_str,
             grab_json_str,
             gojek_json_str,
             overall_json_str,
@@ -257,8 +257,8 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
     return (
         recognised_text,
         status_message,
-        grab_result_str,
-        gojek_result_str,
+        grab_reasoning_str,
+        gojek_reasoning_str,
         grab_json_str,
         gojek_json_str,
         overall_json_str,
@@ -310,13 +310,13 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
         with gr.Column(scale=1):
             status_message_output = gr.Textbox(label="Status Message", interactive=False)
     
-    # --- individual platform JSON outputs ---
+    # --- individual platform outputs with reasoning ---
     with gr.Row():
         with gr.Column(scale=1):
-            grab_result_output = gr.Textbox(label="Grab Result", interactive=False)
+            grab_reasoning_output = gr.Textbox(label="Grab Reasoning", interactive=False, lines=6)
             grab_json_output = gr.Code(label="Grab Response (JSON)", language="json")
         with gr.Column(scale=1):
-            gojek_result_output = gr.Textbox(label="Gojek Result", interactive=False)
+            gojek_reasoning_output = gr.Textbox(label="Gojek Reasoning", interactive=False, lines=6)
             gojek_json_output = gr.Code(label="Gojek Response (JSON)", language="json")
     
     overall_json_output = gr.Code(label="Overall Response (JSON)", language="json")
@@ -334,7 +334,7 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
         inputs=[audio_input, query_mode, maintain_history],
         outputs=[
             recognised_text_output, status_message_output,
-            grab_result_output, gojek_result_output,
+            grab_reasoning_output, gojek_reasoning_output,
             grab_json_output, gojek_json_output,
             overall_json_output, history_output
         ],
@@ -353,6 +353,7 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
     - **Default Examples**: Use the sample audio files above to test the system
     - **Query Modes**: Choose between single server or parallel processing
     - **History**: Enable to maintain conversation context
+    - **Reasoning**: Shows the AI's reasoning process for each platform's response
     
     **Available Sample Files**: {len(DEFAULT_AUDIO_FILES)} audio files loaded from `audio_files/` directory
     """)

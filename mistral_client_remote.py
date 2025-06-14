@@ -33,7 +33,7 @@ print(f"{color_blue}MODEL = {MODEL}{color_reset}")
 
 # Generic structured output model for flexible responses
 class GenericResponse(BaseModel):
-    result: str
+    reasoning: str
     result_dict: Dict[str, Any]
     status: bool
 
@@ -437,9 +437,9 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
         # Prepare default containers
         grab_dict: Dict[str, Any] = {}
         gojek_dict: Dict[str, Any] = {}
-        # NEW: containers for plain-text results
-        grab_result_str: str = ""
-        gojek_result_str: str = ""
+        # NEW: containers for reasoning
+        grab_reasoning_str: str = ""
+        gojek_reasoning_str: str = ""
         
         # Populate the per-platform dicts if we have any results
         if result.get("results"):
@@ -451,18 +451,18 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
 
                 # Extract the structured result_dict if the call succeeded
                 if res.get("success") and res.get("response"):
-                    # NEW: extract plain text result string
-                    extracted_result = res["response"].get("result", "")
+                    # NEW: extract structured data and reasoning
                     extracted_dict = res["response"].get("result_dict", {})
-                print(f"{color_yellow}extracted_result = {extracted_result}{color_reset}")
+                    extracted_reasoning = res["response"].get("reasoning", "")
                 print(f"{color_yellow}extracted_dict = {extracted_dict}{color_reset}")
+                print(f"{color_yellow}extracted_reasoning = {extracted_reasoning}{color_reset}")
 
                 if platform_is_grab:
                     grab_dict = extracted_dict
-                    grab_result_str = extracted_result
+                    grab_reasoning_str = extracted_reasoning
                 elif platform_is_gojek:
                     gojek_dict = extracted_dict
-                    gojek_result_str = extracted_result
+                    gojek_reasoning_str = extracted_reasoning
 
         # Build messages / JSON payloads for the three code components
         if result["error"]:
@@ -478,11 +478,11 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
         # Get conversation history summary
         history_summary = get_conversation_summary()
         
-        # Return strings for each Code component (Grab, Gojek, Overall, History)
+        # Return strings for each Code component (Status, Reasoning, JSON, History)
         return (
             status_message,
-            grab_result_str,
-            gojek_result_str,
+            grab_reasoning_str,
+            gojek_reasoning_str,
             json.dumps(grab_dict, indent=4, ensure_ascii=False),
             json.dumps(gojek_dict, indent=4, ensure_ascii=False),
             json.dumps(overall_json_obj, indent=4, ensure_ascii=False),
@@ -555,13 +555,13 @@ def create_gradio_interface():
                 lines=1
             )
 
-        # --- individual platform JSON outputs ---
+        # --- individual platform outputs with reasoning ---
         with gr.Row():
             with gr.Column(scale=1):
-                grab_text_output = gr.Textbox(
-                    label="Grab Message",
+                grab_reasoning_output = gr.Textbox(
+                    label="Grab Reasoning",
                     interactive=False,
-                    lines=4,
+                    lines=6,
                 )
                 grab_json_output = gr.Code(
                     label="Grab Response (JSON)",
@@ -570,10 +570,10 @@ def create_gradio_interface():
                 )
             
             with gr.Column(scale=1):
-                gojek_text_output = gr.Textbox(
-                    label="Gojek Message",
+                gojek_reasoning_output = gr.Textbox(
+                    label="Gojek Reasoning",
                     interactive=False,
-                    lines=4,
+                    lines=6,
                 )
                 gojek_json_output = gr.Code(
                     label="Gojek Response (JSON)",
@@ -603,7 +603,7 @@ def create_gradio_interface():
             inputs=[user_input, query_mode, maintain_history],
             outputs=[
                 status_output,
-                grab_text_output, gojek_text_output,
+                grab_reasoning_output, gojek_reasoning_output,
                 grab_json_output, gojek_json_output,
                 json_output,
                 history_output,
@@ -627,6 +627,7 @@ def create_gradio_interface():
         - **Parallel**: Query both servers simultaneously
         - **Conversation History**: Enable to maintain context for follow-up questions
         - **Clear History**: Reset all conversation contexts
+        - **Reasoning**: Shows the AI's reasoning process for each platform's response
         
         **Example Queries:**
         - Transport: "I want to go from Orchard Road to MBS"
