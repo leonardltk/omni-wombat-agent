@@ -37,6 +37,13 @@ class GenericResponse(BaseModel):
     result_dict: Dict[str, Any]
     status: bool
 
+# Conversation history storage
+conversation_history = {
+    "grab": {"messages": []},
+    "gojek": {"messages": []},
+    "parallel": {"messages": []}
+}
+
 class MCPClient:
     def __init__(self, server_urls: List[str] = [], api_key: str = None):
         """Initialize the MCP client.
@@ -54,18 +61,21 @@ class MCPClient:
         
         print(f"{color_blue}MCP Client initialized with servers: {self.server_urls}{color_reset}")
     
-    async def query_single_server(self, user_input: str, server_url: str, server_index: int = 0) -> dict:
+    async def query_single_server(self, user_input: str, server_url: str, server_index: int = 0, conversation_messages: List[Dict] = None) -> dict:
         """Send a query to a single MCP server and get a response.
         
         Args:
             user_input: The user's query
             server_url: URL of the specific server to query
             server_index: Index of the server (for identification)
+            conversation_messages: Previous conversation messages for context
             
         Returns:
             Dictionary containing the response with server information
         """
         print(f"{color_blue}\nProcessing query on server {server_index + 1} ({server_url}): {user_input}{color_reset}")
+        if conversation_messages:
+            print(f"{color_blue}Using conversation history with {len(conversation_messages)} messages{color_reset}")
         
         # Use provided output format or default to generic
         response_format = GenericResponse
@@ -86,11 +96,24 @@ class MCPClient:
                 print(f"{color_yellow}# Register the MCP client{color_reset}")
                 await run_ctx.register_mcp_client(mcp_client=mcp_client)
                 
-                # Run the query
+                # Prepare inputs with conversation history
+                print(f"{color_yellow}# Prepare inputs with conversation history{color_reset}")
+                if conversation_messages:
+                    # Build conversation history including the new user message
+                    messages = conversation_messages + [{"role": "user", "content": user_input}]
+                    inputs = messages
+                    print(f"conversation_messages = {color_red}{conversation_messages}{color_reset}")
+                    print(f"user_input = {color_red}{user_input}{color_reset}")
+                    print(f"inputs = {color_red}{inputs}{color_reset}")
+                else:
+                    # First message in conversation
+                    inputs = user_input
+                
+                # Run the query with conversation history
                 print(f"{color_yellow}# Run the query{color_reset}")
                 run_result = await self.client.beta.conversations.run_async(
                     run_ctx=run_ctx,
-                    inputs=user_input,
+                    inputs=inputs,
                 )
                 print(f"{color_yellow}run_result = {run_result}{color_reset}")
 
@@ -104,7 +127,6 @@ class MCPClient:
                 response_output_dict = {
                     "success": True,
                     "response": response,
-                    "conversation_id": run_result.conversation_id,
                     "error": None,
                     "server_url": server_url,
                     "server_index": server_index,
@@ -115,7 +137,6 @@ class MCPClient:
             response_output_dict = {
                 "success": False,
                 "response": None,
-                "conversation_id": None,
                 "error": str(e),
                 "server_url": server_url,
                 "server_index": server_index,
@@ -124,13 +145,14 @@ class MCPClient:
 
         return response_output_dict
 
-    async def query_parallel(self, user_input: str, server_urls: List[str] = []) -> List[dict]:
+    async def query_parallel(self, user_input: str, server_urls: List[str] = [], conversation_messages_list: List[List[Dict]] = None) -> List[dict]:
         """Send a query to multiple MCP servers in parallel and return merged results.
         
         Args:
             user_input: The user's query
             server_urls: Optional list of specific server URLs to query. 
                         If None, uses all configured servers.
+            conversation_messages_list: Optional list of conversation histories for each server
             
         Returns:
             List of dictionaries containing responses from all servers
@@ -141,12 +163,15 @@ class MCPClient:
         print(f"{color_blue}\n{'='*60}{color_reset}")
         print(f"{color_blue}Starting parallel queries to {len(server_urls)} servers{color_reset}")
         print(f"{color_blue}Query: {user_input}{color_reset}")
+        if conversation_messages_list:
+            print(f"{color_blue}Using conversation histories: {[len(msgs) if msgs else 0 for msgs in conversation_messages_list]}{color_reset}")
         print(f"{color_blue}{'='*60}{color_reset}")
         
         # Create tasks for parallel execution
         tasks = []
         for i, server_url in enumerate(server_urls):
-            task = self.query_single_server(user_input, server_url, i)
+            conv_messages = conversation_messages_list[i] if conversation_messages_list and i < len(conversation_messages_list) else None
+            task = self.query_single_server(user_input, server_url, i, conv_messages)
             tasks.append(task)
         
         # Execute all queries in parallel
@@ -161,7 +186,6 @@ class MCPClient:
                     error_result = {
                         "success": False,
                         "response": None,
-                        "conversation_id": None,
                         "error": str(result),
                         "server_url": server_urls[i],
                         "server_index": i,
@@ -208,9 +232,37 @@ def initialize_client():
     print(f"{color_yellow}Client already initialized{color_reset}")
     return True, "Client already initialized"
 
-async def process_query(user_query: str, query_mode: str):
-    """Process a user query through the MCP client."""
-    global client
+def clear_conversation_history():
+    """Clear all conversation history."""
+    global conversation_history
+    conversation_history = {
+        "grab": {"messages": []},
+        "gojek": {"messages": []},
+        "parallel": {"messages": []}
+    }
+    print(f"{color_blue}Conversation history cleared{color_reset}")
+    return "🗑️ Conversation history cleared!"
+
+def get_conversation_summary():
+    """Get a summary of current conversation history."""
+    global conversation_history
+    summary = {}
+    for mode, data in conversation_history.items():
+        summary[mode] = {
+            "message_count": len(data["messages"]),
+            "past_messages": data["messages"] if data["messages"] else None
+        }
+    return json.dumps(summary, indent=2, ensure_ascii=False)
+
+async def process_query(user_query: str, query_mode: str, maintain_history: bool = True):
+    """Process a user query through the MCP client with conversation history support.
+    
+    Args:
+        user_query: The user's query
+        query_mode: Mode of querying (single server or parallel)
+        maintain_history: Whether to maintain conversation history
+    """
+    global client, conversation_history
     
     if not user_query.strip():
         return {
@@ -232,14 +284,44 @@ async def process_query(user_query: str, query_mode: str):
         if query_mode == "Single Server (Grab)":
             # Query first server (Grab)
             print(f"{color_yellow}Querying first server (Grab){color_reset}")
-            result = await client.query_single_server(user_query, client.server_urls[0], 0)
+            
+            # Get conversation messages if maintaining history
+            conv_messages = conversation_history["grab"]["messages"] if maintain_history else None
+            
+            result = await client.query_single_server(user_query, client.server_urls[0], 0, conv_messages)
+            """ result = {
+                    'error': None,
+                    'response': {'result': 'Your ride has been booked. The driver will arrive '
+                                            'shortly.',
+                                'result_dict': {'Destination': 'Marina Bay Sands',
+                                                'Pickup Point': '<Current GPS location>',
+                                                'Scheduled': False,
+                                                'Timing': '2025-06-14T22:56:05',
+                                                'Transport Type': 'JustGrab',
+                                                'platform': 'Grab'},
+                                'status': True},
+                    'server_index': 0,
+                    'server_url': 'http://127.0.0.1:7860/gradio_api/mcp/sse',
+                    'success': True,
+                }
+            """
+            
+            # Update conversation history
+            if maintain_history and result["success"]:
+                # Add user message
+                conversation_history["grab"]["messages"].append({"role": "user", "content": user_query})
+                # Add assistant response
+                assistant_response = result["response"].get("result", "") if result["response"] else ""
+                assistant_response += json.dumps(result["response"].get("result_dict", {}), indent=4, ensure_ascii=False) if result["response"] else ""
+                conversation_history["grab"]["messages"].append({"role": "assistant", "content": assistant_response})
             
             if result["success"]:
                 summary = {
                     "mode": "Single Server",
                     "server": "Grab (7860)",
                     "status": "✅ Success",
-                    "conversation_id": result.get('conversation_id', 'N/A'),
+                    "history_maintained": maintain_history,
+                    "message_count": len(conversation_history["grab"]["messages"]) if maintain_history else 0,
                 }
                 return {
                     "error": None,
@@ -255,14 +337,26 @@ async def process_query(user_query: str, query_mode: str):
                 
         elif query_mode == "Single Server (Gojek)":
             # Query second server (Gojek)
-            result = await client.query_single_server(user_query, client.server_urls[1], 1)
+            conv_messages = conversation_history["gojek"]["messages"] if maintain_history else None
+            
+            result = await client.query_single_server(user_query, client.server_urls[1], 1, conv_messages)
+            
+            # Update conversation history
+            if maintain_history and result["success"]:
+                # Add user message
+                conversation_history["gojek"]["messages"].append({"role": "user", "content": user_query})
+                # Add assistant response
+                assistant_response = result["response"].get("result", "") if result["response"] else ""
+                assistant_response += json.dumps(result["response"].get("result_dict", {}), indent=4, ensure_ascii=False) if result["response"] else ""
+                conversation_history["gojek"]["messages"].append({"role": "assistant", "content": assistant_response})
             
             if result["success"]:
                 summary = {
                     "mode": "Single Server",
                     "server": "Gojek (7862)",
                     "status": "✅ Success",
-                    "conversation_id": result.get('conversation_id', 'N/A'),
+                    "history_maintained": maintain_history,
+                    "message_count": len(conversation_history["gojek"]["messages"]) if maintain_history else 0,
                 }
                 return {
                     "error": None,
@@ -278,7 +372,29 @@ async def process_query(user_query: str, query_mode: str):
                 
         elif query_mode == "Parallel (Both Servers)":
             # Query both servers in parallel
-            results = await client.query_parallel(user_query, client.server_urls)
+            conv_messages_list = None
+            if maintain_history:
+                conv_messages_list = [
+                    conversation_history["grab"]["messages"],
+                    conversation_history["gojek"]["messages"]
+                ]
+            
+            results = await client.query_parallel(user_query, client.server_urls, conv_messages_list)
+            
+            # Update conversation history for successful results
+            if maintain_history:
+                for result in results:
+                    if result["success"]:
+                        assistant_response = result["response"].get("result", "") if result["response"] else ""
+                        assistant_response += json.dumps(result["response"].get("result_dict", {}), indent=4, ensure_ascii=False) if result["response"] else ""
+                        if result["server_index"] == 0:  # Grab
+                            if not conversation_history["grab"]["messages"] or conversation_history["grab"]["messages"][-1]["content"] != user_query:
+                                conversation_history["grab"]["messages"].append({"role": "user", "content": user_query})
+                            conversation_history["grab"]["messages"].append({"role": "assistant", "content": assistant_response})
+                        elif result["server_index"] == 1:  # Gojek
+                            if not conversation_history["gojek"]["messages"] or conversation_history["gojek"]["messages"][-1]["content"] != user_query:
+                                conversation_history["gojek"]["messages"].append({"role": "user", "content": user_query})
+                            conversation_history["gojek"]["messages"].append({"role": "assistant", "content": assistant_response})
             
             successful_results = [r for r in results if r["success"]]
             failed_results = [r for r in results if not r["success"]]
@@ -290,6 +406,11 @@ async def process_query(user_query: str, query_mode: str):
                 "failed": len(failed_results),
                 "total": len(results),
                 "status": f"✅ {len(successful_results)}/{len(results)} successful",
+                "history_maintained": maintain_history,
+                "message_counts": {
+                    "grab": len(conversation_history["grab"]["messages"]) if maintain_history else 0,
+                    "gojek": len(conversation_history["gojek"]["messages"]) if maintain_history else 0,
+                }
             }
             
             return {
@@ -307,11 +428,11 @@ async def process_query(user_query: str, query_mode: str):
             "summary": {"status": "❌ Exception occurred"}
         }
 
-async def gradio_query_handler(user_query: str, query_mode: str):
+async def gradio_query_handler(user_query: str, query_mode: str, maintain_history: bool):
     """Gradio-compatible async handler for query processing."""
     try:
         # Process the query asynchronously
-        result = await process_query(user_query, query_mode)
+        result = await process_query(user_query, query_mode, maintain_history)
         
         # Prepare default containers
         grab_dict: Dict[str, Any] = {}
@@ -354,7 +475,10 @@ async def gradio_query_handler(user_query: str, query_mode: str):
                 "results": result["results"],
             }
         
-        # Return strings for each Code component (Grab, Gojek, Overall)
+        # Get conversation history summary
+        history_summary = get_conversation_summary()
+        
+        # Return strings for each Code component (Grab, Gojek, Overall, History)
         return (
             status_message,
             grab_result_str,
@@ -362,25 +486,27 @@ async def gradio_query_handler(user_query: str, query_mode: str):
             json.dumps(grab_dict, indent=4, ensure_ascii=False),
             json.dumps(gojek_dict, indent=4, ensure_ascii=False),
             json.dumps(overall_json_obj, indent=4, ensure_ascii=False),
+            history_summary,
         )
         
     except Exception as e:
         error_msg = f"❌ Unexpected error: {str(e)}"
         error_json = {"error": str(e), "traceback": traceback.format_exc()}
-        # On unexpected exception, still return placeholders for Grab/Gojek boxes
+        # On unexpected exception, still return placeholders for all boxes
         return error_msg, \
             "", \
             "", \
             json.dumps({}), \
             json.dumps({}), \
-            json.dumps(error_json, indent=4, ensure_ascii=False)
+            json.dumps(error_json, indent=4, ensure_ascii=False), \
+            get_conversation_summary()
 
 def create_gradio_interface():
     """Create and return the Gradio interface."""
     
     with gr.Blocks(title="MCP Client - Multi-Server Query Interface") as interface:
         gr.Markdown("# 🚀 MCP Client - Multi-Server Query Interface")
-        gr.Markdown("Query multiple MCP servers (Grab & Gojek) and see parallel results")
+        gr.Markdown("Query multiple MCP servers (Grab & Gojek) with conversation history support")
         
         with gr.Row():
             with gr.Column(scale=1):
@@ -397,20 +523,29 @@ def create_gradio_interface():
                         value="Parallel (Both Servers)"
                     )
                 
-                submit_btn = gr.Button("🔍 Submit Query", variant="primary")
+                with gr.Row():
+                    maintain_history = gr.Checkbox(
+                        label="Maintain Conversation History",
+                        value=True,
+                        info="Keep conversation context for follow-up questions"
+                    )
+                
+                with gr.Row():
+                    submit_btn = gr.Button("🔍 Submit Query", variant="primary")
+                    clear_btn = gr.Button("🗑️ Clear History", variant="secondary")
                 
             with gr.Column(scale=1):
                 # Example inputs
                 gr.Examples(
                     examples=[
-                        ["I want to go from Orchard Road to Marina Bay Sands at 6pm", "Parallel (Both Servers)"],
-                        ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (Both Servers)"],
-                        ["Book ride to Marina Bay Sands", "Parallel (Both Servers)"],
-                        ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)"],
-                        # ["Book a GrabTaxi from Changi Airport to CBD", "Single Server (Grab)"],
-                        # ["Order nasi lemak from local restaurant to office", "Single Server (Gojek)"],
+                        ["I want to go from Orchard Road to Marina Bay Sands at 6pm", "Parallel (Both Servers)", True],
+                        ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (Both Servers)", True],
+                        ["Book ride to Marina Bay Sands", "Parallel (Both Servers)", True],
+                        ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)", True],
+                        ["What's the cheapest option?", "Parallel (Both Servers)", True],  # Follow-up question
+                        ["Can you make it faster?", "Parallel (Both Servers)", True],  # Follow-up question
                     ],
-                    inputs=[user_input, query_mode]
+                    inputs=[user_input, query_mode, maintain_history]
                 )
         
         with gr.Row():
@@ -454,16 +589,35 @@ def create_gradio_interface():
                 lines=20,
             )
         
-        # Event handler
+        # Conversation history display
+        with gr.Row():
+            history_output = gr.Code(
+                label="Conversation History Summary",
+                language="json",
+                lines=10,
+            )
+        
+        # Event handlers
         submit_btn.click(
             fn=gradio_query_handler,
-            inputs=[user_input, query_mode],
+            inputs=[user_input, query_mode, maintain_history],
             outputs=[
                 status_output,
                 grab_text_output, gojek_text_output,
                 grab_json_output, gojek_json_output,
-                json_output
+                json_output,
+                history_output,
             ],
+        )
+        
+        clear_btn.click(
+            fn=clear_conversation_history,
+            inputs=[],
+            outputs=[status_output],
+        ).then(
+            fn=lambda: get_conversation_summary(),
+            inputs=[],
+            outputs=[history_output],
         )
         
         # Instructions
@@ -471,12 +625,14 @@ def create_gradio_interface():
         gr.Markdown("""
         - **Single Server**: Query only Grab or Gojek
         - **Parallel**: Query both servers simultaneously
-        - **Full Response**: Include LLM response + MCP calls
-        - **MCP Only**: Show only tool calls and results
+        - **Conversation History**: Enable to maintain context for follow-up questions
+        - **Clear History**: Reset all conversation contexts
         
         **Example Queries:**
         - Transport: "I want to go from Orchard Road to MBS"
         - Food: "Order pizza from Pizza Hut to my home"
+        - Follow-up: "What's the cheapest option?" (after initial query)
+        - Follow-up: "Can you make it faster?" (after booking)
         """)
     
     return interface
@@ -524,13 +680,5 @@ Example queries:
     I want to go from Woodlands to CBD
     Order pizza from Pizza Hut to my home
     Order pizza from KFC to office
-
-"""
-"""
-tar -vcf checkpoints/v3.2-added_respective_output_boxes.tar *.py
-    - MCP_server_gojek.py
-    - MCP_server_grab.py
-    - mistral_client_remote.py
-    - test_grab_services.py
 
 """

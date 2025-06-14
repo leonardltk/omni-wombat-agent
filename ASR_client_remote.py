@@ -42,6 +42,13 @@ print(f"{COLOR_CYAN}Connecting to aggregator at {AGGREGATOR_URL}…{COLOR_RESET}
 aggregator_client = Client(AGGREGATOR_URL)
 print(f"{COLOR_CYAN}Connection established!{COLOR_RESET}")
 
+# Debug: Show available endpoints
+try:
+    print(f"{COLOR_CYAN}Available endpoints: {aggregator_client.endpoints}{COLOR_RESET}")
+    print(f"{COLOR_CYAN}API info: {aggregator_client.view_api()}{COLOR_RESET}")
+except Exception as e:
+    print(f"{COLOR_CYAN}Could not get endpoint info: {e}{COLOR_RESET}")
+
 # -----------------------------------------------------------------------------
 # ASR utilities
 # -----------------------------------------------------------------------------
@@ -88,7 +95,24 @@ def transcribe_audio(audio_path: str) -> str:
 # -----------------------------------------------------------------------------
 # Main handler that ties everything together
 # -----------------------------------------------------------------------------
-def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, str, str, str, str]:
+def clear_history() -> str:
+    """Clear conversation history on the aggregator server.
+    
+    Returns:
+        Status message indicating success or failure
+    """
+    global aggregator_client
+    try:
+        # Call the clear history endpoint
+        response = aggregator_client.predict(api_name="/clear_conversation_history")
+        print(f"{COLOR_CYAN}Clear history response: {response}{COLOR_RESET}")
+        return response if isinstance(response, str) else "🗑️ Conversation history cleared!"
+    except Exception as e:
+        traceback.print_exc()
+        print(f"{COLOR_CYAN}Clear history failed: {e}{COLOR_RESET}")
+        return f"❌ Error: Failed to clear history: {e}"
+
+def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = True) -> Tuple[str, str, str, str, str, str, str, str]:
     """Gradio click handler: audio → text → aggregator → structured outputs.
 
     Returns (in order):
@@ -98,7 +122,8 @@ def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, st
         gojek_result_str,
         grab_json_str,
         gojek_json_str,
-        overall_json_str
+        overall_json_str,
+        history_summary_str,
     """
     if not audio:
         return (
@@ -108,6 +133,7 @@ def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, st
             json.dumps({}, indent=4),     # grab_json_str
             json.dumps({}, indent=4),     # gojek_json_str
             json.dumps({"error": "No audio supplied"}, indent=4),  # overall_json_str
+            json.dumps({}, indent=4),     # history_summary_str
         )
 
     # 1. Transcribe audio to text
@@ -124,6 +150,7 @@ def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, st
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),     # grab_json_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),     # gojek_json_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),  # overall_json_str
+            json.dumps({"error": f"ASR failed: {e}"}, indent=4),  # history_summary_str
         )
 
     if not recognised_text:
@@ -134,21 +161,38 @@ def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, st
             json.dumps({"error": "Could not recognise speech"}, indent=4),     # grab_json_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),     # gojek_json_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),  # overall_json_str
+            json.dumps({"error": "Could not recognise speech"}, indent=4),  # history_summary_str
         )
 
     # 2. Forward recognised text to the aggregator
     global aggregator_client  # may be None if initial connection failed
-    response = aggregator_client.predict(recognised_text, query_mode)
+    try:
+        # Try to call the main submit endpoint - this should correspond to the submit button
+        response = aggregator_client.predict(recognised_text, query_mode, maintain_history, api_name="/gradio_query_handler")
+    except Exception as e:
+        traceback.print_exc()
+        print(f"{COLOR_CYAN}[gradio_query_handler] failed: {e}{COLOR_RESET}")
+        # Return error response
+        return (
+            recognised_text,
+            f"❌ Error: Failed to call aggregator: {e}",
+            "", "",
+            "",
+            "",
+            "",
+            "",
+        )
 
-    # If the aggregator returned the expected 6-element tuple, unpack it.
+    # If the aggregator returned the expected 7-element tuple, unpack it.
     status_message = ""
     grab_result_str = ""
     gojek_result_str = ""
     grab_json_str = json.dumps({}, indent=4)
     gojek_json_str = json.dumps({}, indent=4)
     overall_json_str = json.dumps({}, indent=4)
+    history_summary_str = json.dumps({}, indent=4)
 
-    if isinstance(response, (list, tuple)) and len(response) == 6:
+    if isinstance(response, (list, tuple)) and len(response) == 7:
         (
             status_message,
             grab_result_str,
@@ -156,6 +200,7 @@ def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, st
             grab_json_str,
             gojek_json_str,
             overall_json_str,
+            history_summary_str,
         ) = response
         # Ensure code outputs are strings (they might already be)
         grab_json_str = (
@@ -167,9 +212,12 @@ def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, st
         overall_json_str = (
             overall_json_str if isinstance(overall_json_str, str) else json.dumps(overall_json_str, indent=4, ensure_ascii=False)
         )
+        history_summary_str = (
+            history_summary_str if isinstance(history_summary_str, str) else json.dumps(history_summary_str, indent=4, ensure_ascii=False)
+        )
     else:
         # Unexpected shape – treat whole response as overall JSON
-        status_message = "⚠️ Aggregator returned unexpected format"
+        status_message = f"⚠️ Aggregator returned unexpected format (expected 7 elements, got {len(response) if isinstance(response, (list, tuple)) else 'non-tuple'})"
         overall_json_str = (
             json.dumps(response, indent=4, ensure_ascii=False)
             if not isinstance(response, str)
@@ -184,6 +232,7 @@ def transcribe_and_query(audio: str, query_mode: str) -> Tuple[str, str, str, st
         grab_json_str,
         gojek_json_str,
         overall_json_str,
+        history_summary_str,
     )
 
 # -----------------------------------------------------------------------------
@@ -194,14 +243,25 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
     gr.Markdown("Record or upload speech, then pass the recognised text to the **Mistral MCP** aggregator.")
 
     with gr.Row():
-        audio_input = gr.Audio(sources=["microphone", "upload"], type="filepath", label="Input Audio")
-        query_mode = gr.Radio(
-            ["Single Server (Grab)", "Single Server (Gojek)", "Parallel (Both Servers)"],
-            value="Parallel (Both Servers)",
-            label="Query Mode",
-        )
+        audio_input = gr.Audio(
+            sources=["microphone", "upload"],
+            type="filepath",
+            label="Input Audio")
+        with gr.Column():
+            query_mode = gr.Radio(
+                ["Single Server (Grab)", "Single Server (Gojek)", "Parallel (Both Servers)"],
+                value="Parallel (Both Servers)",
+                label="Query Mode",
+            )
+            maintain_history = gr.Checkbox(
+                label="Maintain Conversation History",
+                value=True,
+                info="Keep conversation context for follow-up questions"
+            )
 
-    submit_btn = gr.Button("✨ Transcribe & Query")
+    with gr.Row():
+        submit_btn = gr.Button("✨ Transcribe & Query", variant="primary")
+        clear_btn = gr.Button("🗑️ Clear History", variant="secondary")
 
     # --- ASR outputs ---
     with gr.Row():
@@ -209,6 +269,7 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
             recognised_text_output = gr.Textbox(label="Recognised Text", interactive=False)
         with gr.Column(scale=1):
             status_message_output = gr.Textbox(label="Status Message", interactive=False)
+    
     # --- individual platform JSON outputs ---
     with gr.Row():
         with gr.Column(scale=1):
@@ -217,17 +278,31 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
         with gr.Column(scale=1):
             gojek_result_output = gr.Textbox(label="Gojek Result", interactive=False)
             gojek_json_output = gr.Code(label="Gojek Response (JSON)", language="json")
+    
     overall_json_output = gr.Code(label="Overall Response (JSON)", language="json")
+    
+    # Conversation history display
+    with gr.Row():
+        history_output = gr.Code(
+            label="Conversation History Summary",
+            language="json",
+            lines=10,
+        )
 
     submit_btn.click(
         fn=transcribe_and_query,
-        inputs=[audio_input, query_mode],
+        inputs=[audio_input, query_mode, maintain_history],
         outputs=[
             recognised_text_output, status_message_output,
             grab_result_output, gojek_result_output,
             grab_json_output, gojek_json_output,
-            overall_json_output
+            overall_json_output, history_output
         ],
+    )
+
+    clear_btn.click(
+        fn=clear_history,
+        outputs=[status_message_output],
     )
 
 if __name__ == "__main__":
