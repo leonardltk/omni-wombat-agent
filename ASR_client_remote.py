@@ -142,7 +142,7 @@ def clear_history() -> str:
         print(f"{COLOR_CYAN}Clear history failed: {e}{COLOR_RESET}")
         return f"❌ Error: Failed to clear history: {e}"
 
-def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = True) -> Tuple[str, str, str, str, str, str, str, str]:
+def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = True) -> Tuple[str, str, str, str, str, str, str, str, str]:
     """Gradio click handler: audio → text → aggregator → structured outputs.
 
     Returns (in order):
@@ -150,8 +150,10 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         status_message,
         grab_reasoning_str,
         gojek_reasoning_str,
+        redmart_reasoning_str,
         grab_json_str,
         gojek_json_str,
+        redmart_json_str,
         overall_json_str,
         history_summary_str,
     """
@@ -159,9 +161,10 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         return (
             "",                           # recognised_text
             "❌ Error: No audio supplied",  # status_message
-            "", "",                     # grab_reasoning_str, gojek_reasoning_str
+            "", "", "",                   # grab_reasoning_str, gojek_reasoning_str, redmart_reasoning_str
             json.dumps({}, indent=4),     # grab_json_str
             json.dumps({}, indent=4),     # gojek_json_str
+            json.dumps({}, indent=4),     # redmart_json_str
             json.dumps({"error": "No audio supplied"}, indent=4),  # overall_json_str
             json.dumps({}, indent=4),     # history_summary_str
         )
@@ -176,9 +179,10 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         return (
             "",                           # recognised_text
             f"❌ Error: ASR failed: {e}",  # status_message
-            "", "",                     # grab_reasoning_str, gojek_reasoning_str
+            "", "", "",                   # grab_reasoning_str, gojek_reasoning_str, redmart_reasoning_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),     # grab_json_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),     # gojek_json_str
+            json.dumps({"error": f"ASR failed: {e}"}, indent=4),     # redmart_json_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),  # overall_json_str
             json.dumps({"error": f"ASR failed: {e}"}, indent=4),  # history_summary_str
         )
@@ -187,9 +191,10 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         return (
             "",                           # recognised_text
             "❌ Error: Could not recognise speech",  # status_message
-            "", "",                     # grab_reasoning_str, gojek_reasoning_str
+            "", "", "",                   # grab_reasoning_str, gojek_reasoning_str, redmart_reasoning_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),     # grab_json_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),     # gojek_json_str
+            json.dumps({"error": "Could not recognise speech"}, indent=4),     # redmart_json_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),  # overall_json_str
             json.dumps({"error": "Could not recognise speech"}, indent=4),  # history_summary_str
         )
@@ -206,29 +211,34 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         return (
             recognised_text,
             f"❌ Error: Failed to call aggregator: {e}",
-            "", "",
+            "", "", "",
+            "",
             "",
             "",
             "",
             "",
         )
 
-    # If the aggregator returned the expected 7-element tuple, unpack it.
+    # If the aggregator returned the expected 9-element tuple, unpack it.
     status_message = ""
     grab_reasoning_str = ""
     gojek_reasoning_str = ""
+    redmart_reasoning_str = ""
     grab_json_str = json.dumps({}, indent=4)
     gojek_json_str = json.dumps({}, indent=4)
+    redmart_json_str = json.dumps({}, indent=4)
     overall_json_str = json.dumps({}, indent=4)
     history_summary_str = json.dumps({}, indent=4)
 
-    if isinstance(response, (list, tuple)) and len(response) == 7:
+    if isinstance(response, (list, tuple)) and len(response) == 9:
         (
             status_message,
             grab_reasoning_str,
             gojek_reasoning_str,
+            redmart_reasoning_str,
             grab_json_str,
             gojek_json_str,
+            redmart_json_str,
             overall_json_str,
             history_summary_str,
         ) = response
@@ -239,6 +249,9 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         gojek_json_str = (
             gojek_json_str if isinstance(gojek_json_str, str) else json.dumps(gojek_json_str, indent=4, ensure_ascii=False)
         )
+        redmart_json_str = (
+            redmart_json_str if isinstance(redmart_json_str, str) else json.dumps(redmart_json_str, indent=4, ensure_ascii=False)
+        )
         overall_json_str = (
             overall_json_str if isinstance(overall_json_str, str) else json.dumps(overall_json_str, indent=4, ensure_ascii=False)
         )
@@ -247,7 +260,7 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         )
     else:
         # Unexpected shape – treat whole response as overall JSON
-        status_message = f"⚠️ Aggregator returned unexpected format (expected 7 elements, got {len(response) if isinstance(response, (list, tuple)) else 'non-tuple'})"
+        status_message = f"⚠️ Aggregator returned unexpected format (expected 9 elements, got {len(response) if isinstance(response, (list, tuple)) else 'non-tuple'})"
         overall_json_str = (
             json.dumps(response, indent=4, ensure_ascii=False)
             if not isinstance(response, str)
@@ -259,8 +272,10 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
         status_message,
         grab_reasoning_str,
         gojek_reasoning_str,
+        redmart_reasoning_str,
         grab_json_str,
         gojek_json_str,
+        redmart_json_str,
         overall_json_str,
         history_summary_str,
     )
@@ -270,7 +285,7 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
 # -----------------------------------------------------------------------------
 with gr.Blocks(title="ASR → MCP Aggregator") as demo:
     gr.Markdown("# 🎙️ ASR Client → MCP Aggregator")
-    gr.Markdown("Record or upload speech, then pass the recognised text to the **Mistral MCP** aggregator.")
+    gr.Markdown("Record or upload speech, then pass the recognised text to the **Mistral MCP** aggregator supporting **Grab**, **Gojek**, and **RedMart** platforms.")
 
     with gr.Row():
         audio_input = gr.Audio(
@@ -279,8 +294,8 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
             label="Input Audio")
         with gr.Column():
             query_mode = gr.Radio(
-                ["Single Server (Grab)", "Single Server (Gojek)", "Parallel (Both Servers)"],
-                value="Parallel (Both Servers)",
+                ["Single Server (Grab)", "Single Server (Gojek)", "Single Server (RedMart)", "Parallel (All Servers)"],
+                value="Parallel (All Servers)",
                 label="Query Mode",
             )
             maintain_history = gr.Checkbox(
@@ -318,6 +333,9 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
         with gr.Column(scale=1):
             gojek_reasoning_output = gr.Textbox(label="Gojek Reasoning", interactive=False, lines=6)
             gojek_json_output = gr.Code(label="Gojek Response (JSON)", language="json")
+        with gr.Column(scale=1):
+            redmart_reasoning_output = gr.Textbox(label="RedMart Reasoning", interactive=False, lines=6)
+            redmart_json_output = gr.Code(label="RedMart Response (JSON)", language="json")
     
     overall_json_output = gr.Code(label="Overall Response (JSON)", language="json")
     
@@ -335,7 +353,9 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
         outputs=[
             recognised_text_output, status_message_output,
             grab_reasoning_output, gojek_reasoning_output,
+            redmart_reasoning_output,
             grab_json_output, gojek_json_output,
+            redmart_json_output,
             overall_json_output, history_output
         ],
     )
@@ -351,11 +371,26 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
     - **Record Audio**: Use the microphone button to record your voice
     - **Upload Audio**: Click the upload button to select an audio file
     - **Default Examples**: Use the sample audio files above to test the system
-    - **Query Modes**: Choose between single server or parallel processing
+    - **Query Modes**: Choose between single server or parallel processing across all servers
     - **History**: Enable to maintain conversation context
     - **Reasoning**: Shows the AI's reasoning process for each platform's response
     
+    **Platform Capabilities:**
+    - **Grab**: Transport (🚗), Food delivery (🍔), Grocery shopping (🛒 GrabMart)
+    - **Gojek**: Transport (🚗), Food delivery (🍔) 
+    - **RedMart**: Grocery shopping (🛒), Meal kits (🍱)
+    
+    **Example Queries:**
+    - Transport: "I want to go from Orchard Road to MBS"
+    - Food: "Order pizza from Pizza Hut to my home"
+    - Grocery: "I need milk, bread, eggs and rice delivered"
+    - Meal Kit: "Order Asian meal kit for 2 people"
+    - Follow-up: "What's the cheapest option?" (after initial query)
+    - Follow-up: "Can you make it faster?" (after booking)
+    
     **Available Sample Files**: {len(DEFAULT_AUDIO_FILES)} audio files loaded from `audio_files/` directory
+    
+    **Note**: When a platform doesn't support a requested feature (e.g., Gojek doesn't support grocery shopping, RedMart doesn't support transport), it will return an empty response with an explanation.
     """)
 
 if __name__ == "__main__":

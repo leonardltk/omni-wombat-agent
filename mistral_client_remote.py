@@ -41,6 +41,7 @@ class GenericResponse(BaseModel):
 conversation_history = {
     "grab": {"messages": []},
     "gojek": {"messages": []},
+    "redmart": {"messages": []},
     "parallel": {"messages": []}
 }
 
@@ -85,6 +86,11 @@ class MCPClient:
             # Create a new MCP client for each request to avoid connection reuse issues
             print(f"{color_yellow}Creating new MCP client for server {server_index + 1} ({server_url}){color_reset}")
             mcp_client = MCPClientSSE(sse_params=SSEServerParams(url=server_url, timeout=100))
+            """
+                mcp_client.get_system_prompt()
+                await mcp_client.get_tools()
+                mcp_client.list_system_prompts()
+            """
             
             # Create run context
             print(f"{color_yellow}# Create run context{color_reset}")
@@ -131,6 +137,8 @@ class MCPClient:
                     "server_url": server_url,
                     "server_index": server_index,
                 }
+
+                # pdb.set_trace()
 
         except Exception as e:
             traceback.print_exc()
@@ -221,8 +229,9 @@ def initialize_client():
     if client is None:
         print(f"{color_yellow}Initializing MCP client...{color_reset}")
         default_servers = [
-            "http://127.0.0.1:7860/gradio_api/mcp/sse",
-            "http://127.0.0.1:7862/gradio_api/mcp/sse"
+            "http://127.0.0.1:7860/gradio_api/mcp/sse",  # Grab
+            "http://127.0.0.1:7861/gradio_api/mcp/sse",  # Gojek
+            "http://127.0.0.1:7862/gradio_api/mcp/sse"   # RedMart
         ]
         try:
             client = MCPClient(server_urls=default_servers)
@@ -238,6 +247,7 @@ def clear_conversation_history():
     conversation_history = {
         "grab": {"messages": []},
         "gojek": {"messages": []},
+        "redmart": {"messages": []},
         "parallel": {"messages": []}
     }
     print(f"{color_blue}Conversation history cleared{color_reset}")
@@ -289,22 +299,6 @@ async def process_query(user_query: str, query_mode: str, maintain_history: bool
             conv_messages = conversation_history["grab"]["messages"] if maintain_history else None
             
             result = await client.query_single_server(user_query, client.server_urls[0], 0, conv_messages)
-            """ result = {
-                    'error': None,
-                    'response': {'result': 'Your ride has been booked. The driver will arrive '
-                                            'shortly.',
-                                'result_dict': {'Destination': 'Marina Bay Sands',
-                                                'Pickup Point': '<Current GPS location>',
-                                                'Scheduled': False,
-                                                'Timing': '2025-06-14T22:56:05',
-                                                'Transport Type': 'JustGrab',
-                                                'platform': 'Grab'},
-                                'status': True},
-                    'server_index': 0,
-                    'server_url': 'http://127.0.0.1:7860/gradio_api/mcp/sse',
-                    'success': True,
-                }
-            """
             
             # Update conversation history
             if maintain_history and result["success"]:
@@ -318,7 +312,7 @@ async def process_query(user_query: str, query_mode: str, maintain_history: bool
             if result["success"]:
                 summary = {
                     "mode": "Single Server",
-                    "server": "Grab (7860)",
+                    "server": "Grab",
                     "status": "✅ Success",
                     "history_maintained": maintain_history,
                     "message_count": len(conversation_history["grab"]["messages"]) if maintain_history else 0,
@@ -353,7 +347,7 @@ async def process_query(user_query: str, query_mode: str, maintain_history: bool
             if result["success"]:
                 summary = {
                     "mode": "Single Server",
-                    "server": "Gojek (7862)",
+                    "server": "Gojek",
                     "status": "✅ Success",
                     "history_maintained": maintain_history,
                     "message_count": len(conversation_history["gojek"]["messages"]) if maintain_history else 0,
@@ -369,14 +363,50 @@ async def process_query(user_query: str, query_mode: str, maintain_history: bool
                     "results": [result],
                     "summary": {"mode": "Single Server", "status": "❌ Failed"}
                 }
+
+        elif query_mode == "Single Server (RedMart)":
+            # Query third server (RedMart)
+            conv_messages = conversation_history["redmart"]["messages"] if maintain_history else None
+            
+            result = await client.query_single_server(user_query, client.server_urls[2], 2, conv_messages)
+            
+            # Update conversation history
+            if maintain_history and result["success"]:
+                # Add user message
+                conversation_history["redmart"]["messages"].append({"role": "user", "content": user_query})
+                # Add assistant response
+                assistant_response = result["response"].get("result", "") if result["response"] else ""
+                assistant_response += json.dumps(result["response"].get("result_dict", {}), indent=4, ensure_ascii=False) if result["response"] else ""
+                conversation_history["redmart"]["messages"].append({"role": "assistant", "content": assistant_response})
+            
+            if result["success"]:
+                summary = {
+                    "mode": "Single Server",
+                    "server": "RedMart",
+                    "status": "✅ Success",
+                    "history_maintained": maintain_history,
+                    "message_count": len(conversation_history["redmart"]["messages"]) if maintain_history else 0,
+                }
+                return {
+                    "error": None,
+                    "results": [result],
+                    "summary": summary
+                }
+            else:
+                return {
+                    "error": f"Server error: {result['error']}",
+                    "results": [result],
+                    "summary": {"mode": "Single Server", "status": "❌ Failed"}
+                }
                 
-        elif query_mode == "Parallel (Both Servers)":
-            # Query both servers in parallel
+        elif query_mode == "Parallel (All Servers)":
+            # Query all servers in parallel
             conv_messages_list = None
             if maintain_history:
                 conv_messages_list = [
                     conversation_history["grab"]["messages"],
-                    conversation_history["gojek"]["messages"]
+                    conversation_history["gojek"]["messages"],
+                    conversation_history["redmart"]["messages"]
                 ]
             
             results = await client.query_parallel(user_query, client.server_urls, conv_messages_list)
@@ -395,13 +425,17 @@ async def process_query(user_query: str, query_mode: str, maintain_history: bool
                             if not conversation_history["gojek"]["messages"] or conversation_history["gojek"]["messages"][-1]["content"] != user_query:
                                 conversation_history["gojek"]["messages"].append({"role": "user", "content": user_query})
                             conversation_history["gojek"]["messages"].append({"role": "assistant", "content": assistant_response})
+                        elif result["server_index"] == 2:  # RedMart
+                            if not conversation_history["redmart"]["messages"] or conversation_history["redmart"]["messages"][-1]["content"] != user_query:
+                                conversation_history["redmart"]["messages"].append({"role": "user", "content": user_query})
+                            conversation_history["redmart"]["messages"].append({"role": "assistant", "content": assistant_response})
             
             successful_results = [r for r in results if r["success"]]
             failed_results = [r for r in results if not r["success"]]
             
             summary = {
                 "mode": "Parallel",
-                "servers": ["Grab (7860)", "Gojek (7862)"],
+                "servers": ["Grab (7860)", "Gojek (7861)", "RedMart (7862)"],
                 "successful": len(successful_results),
                 "failed": len(failed_results),
                 "total": len(results),
@@ -410,6 +444,7 @@ async def process_query(user_query: str, query_mode: str, maintain_history: bool
                 "message_counts": {
                     "grab": len(conversation_history["grab"]["messages"]) if maintain_history else 0,
                     "gojek": len(conversation_history["gojek"]["messages"]) if maintain_history else 0,
+                    "redmart": len(conversation_history["redmart"]["messages"]) if maintain_history else 0,
                 }
             }
             
@@ -437,9 +472,11 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
         # Prepare default containers
         grab_dict: Dict[str, Any] = {}
         gojek_dict: Dict[str, Any] = {}
+        redmart_dict: Dict[str, Any] = {}
         # NEW: containers for reasoning
         grab_reasoning_str: str = ""
         gojek_reasoning_str: str = ""
+        redmart_reasoning_str: str = ""
         
         # Populate the per-platform dicts if we have any results
         if result.get("results"):
@@ -447,13 +484,27 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
                 print(f"{color_yellow}res = {json.dumps(res, indent=4, ensure_ascii=False)}{color_reset}")
                 # Determine which platform this result belongs to
                 platform_is_grab = res.get("server_index") == 0 or str(res.get("server_url", "")).endswith(":7860/gradio_api/mcp/sse")
-                platform_is_gojek = res.get("server_index") == 1 or str(res.get("server_url", "")).endswith(":7862/gradio_api/mcp/sse")
+                platform_is_gojek = res.get("server_index") == 1 or str(res.get("server_url", "")).endswith(":7861/gradio_api/mcp/sse")
+                platform_is_redmart = res.get("server_index") == 2 or str(res.get("server_url", "")).endswith(":7862/gradio_api/mcp/sse")
 
                 # Extract the structured result_dict if the call succeeded
+                extracted_dict = {}
+                extracted_reasoning = ""
+                
                 if res.get("success") and res.get("response"):
                     # NEW: extract structured data and reasoning
                     extracted_dict = res["response"].get("result_dict", {})
                     extracted_reasoning = res["response"].get("reasoning", "")
+                    
+                    # Handle cases where the platform doesn't support the requested feature
+                    # Check if the response indicates unsupported feature
+                    if not extracted_dict or (isinstance(extracted_dict, dict) and len(extracted_dict) == 0):
+                        # Check if the reasoning mentions unsupported feature
+                        reasoning_lower = extracted_reasoning.lower()
+                        if any(phrase in reasoning_lower for phrase in ["not support", "doesn't support", "cannot", "unable", "not available"]):
+                            extracted_dict = {}  # Return empty dict for unsupported features
+                            extracted_reasoning = f"This platform does not support the requested feature. {extracted_reasoning}"
+                
                 print(f"{color_yellow}extracted_dict = {extracted_dict}{color_reset}")
                 print(f"{color_yellow}extracted_reasoning = {extracted_reasoning}{color_reset}")
 
@@ -463,8 +514,11 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
                 elif platform_is_gojek:
                     gojek_dict = extracted_dict
                     gojek_reasoning_str = extracted_reasoning
+                elif platform_is_redmart:
+                    redmart_dict = extracted_dict
+                    redmart_reasoning_str = extracted_reasoning
 
-        # Build messages / JSON payloads for the three code components
+        # Build messages / JSON payloads for the code components
         if result["error"]:
             status_message = f"❌ Error: {result['error']}"
             overall_json_obj = {"error": result["error"]}
@@ -483,8 +537,10 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
             status_message,
             grab_reasoning_str,
             gojek_reasoning_str,
+            redmart_reasoning_str,
             json.dumps(grab_dict, indent=4, ensure_ascii=False),
             json.dumps(gojek_dict, indent=4, ensure_ascii=False),
+            json.dumps(redmart_dict, indent=4, ensure_ascii=False),
             json.dumps(overall_json_obj, indent=4, ensure_ascii=False),
             history_summary,
         )
@@ -496,6 +552,8 @@ async def gradio_query_handler(user_query: str, query_mode: str, maintain_histor
         return error_msg, \
             "", \
             "", \
+            "", \
+            json.dumps({}), \
             json.dumps({}), \
             json.dumps({}), \
             json.dumps(error_json, indent=4, ensure_ascii=False), \
@@ -518,9 +576,9 @@ def create_gradio_interface():
                 
                 with gr.Row():
                     query_mode = gr.Radio(
-                        choices=["Single Server (Grab)", "Single Server (Gojek)", "Parallel (Both Servers)"],
+                        choices=["Single Server (Grab)", "Single Server (Gojek)", "Single Server (RedMart)", "Parallel (All Servers)"],
                         label="Query Mode",
-                        value="Parallel (Both Servers)"
+                        value="Parallel (All Servers)"
                     )
                 
                 with gr.Row():
@@ -538,12 +596,12 @@ def create_gradio_interface():
                 # Example inputs
                 gr.Examples(
                     examples=[
-                        ["I want to go from Orchard Road to Marina Bay Sands at 6pm", "Parallel (Both Servers)", True],
-                        ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (Both Servers)", True],
-                        ["Book ride to Marina Bay Sands", "Parallel (Both Servers)", True],
-                        ["Order Big Mac and fries from McDonald's to my home at 123 Main Street", "Parallel (Both Servers)", True],
-                        ["What's the cheapest option?", "Parallel (Both Servers)", True],  # Follow-up question
-                        ["Can you make it faster?", "Parallel (Both Servers)", True],  # Follow-up question
+                        ["I want to go from Orchard Road to Marina Bay Sands at 6pm", "Parallel (All Servers)", True],
+                        ["I want to go from Orchard Road to Marina Bay Sands", "Parallel (All Servers)", True],
+                        ["Book ride to Marina Bay Sands", "Parallel (All Servers)", True],
+                        ["Order Big Mac and fries from McDonald's to Home", "Parallel (All Servers)", True],
+                        ["I need milk, bread, eggs and rice delivered to my home", "Parallel (All Servers)", True],
+                        ["Order organic vegetables and premium meat", "Single Server (RedMart)", True],
                     ],
                     inputs=[user_input, query_mode, maintain_history]
                 )
@@ -581,6 +639,18 @@ def create_gradio_interface():
                     lines=12,
                 )
 
+            with gr.Column(scale=1):
+                redmart_reasoning_output = gr.Textbox(
+                    label="RedMart Reasoning",
+                    interactive=False,
+                    lines=6,
+                )
+                redmart_json_output = gr.Code(
+                    label="RedMart Response (JSON)",
+                    language="json",
+                    lines=12,
+                )
+
         # Existing aggregated results box
         with gr.Row():
             json_output = gr.Code(
@@ -603,8 +673,8 @@ def create_gradio_interface():
             inputs=[user_input, query_mode, maintain_history],
             outputs=[
                 status_output,
-                grab_reasoning_output, gojek_reasoning_output,
-                grab_json_output, gojek_json_output,
+                grab_reasoning_output, gojek_reasoning_output, redmart_reasoning_output,
+                grab_json_output, gojek_json_output, redmart_json_output,
                 json_output,
                 history_output,
             ],
@@ -623,17 +693,26 @@ def create_gradio_interface():
         # Instructions
         gr.Markdown("### 📖 Instructions")
         gr.Markdown("""
-        - **Single Server**: Query only Grab or Gojek
-        - **Parallel**: Query both servers simultaneously
+        - **Single Server**: Query only Grab, Gojek, or RedMart
+        - **Parallel**: Query all servers simultaneously
         - **Conversation History**: Enable to maintain context for follow-up questions
         - **Clear History**: Reset all conversation contexts
         - **Reasoning**: Shows the AI's reasoning process for each platform's response
         
+        **Platform Capabilities:**
+        - **Grab**: Transport (🚗), Food delivery (🍔), Grocery shopping (🛒 GrabMart)
+        - **Gojek**: Transport (🚗), Food delivery (🍔) 
+        - **RedMart**: Grocery shopping (🛒), Meal kits (🍱)
+        
         **Example Queries:**
         - Transport: "I want to go from Orchard Road to MBS"
         - Food: "Order pizza from Pizza Hut to my home"
+        - Grocery: "I need milk, bread, eggs and rice delivered"
+        - Meal Kit: "Order Asian meal kit for 2 people"
         - Follow-up: "What's the cheapest option?" (after initial query)
         - Follow-up: "Can you make it faster?" (after booking)
+        
+        **Note**: When a platform doesn't support a requested feature (e.g., Gojek doesn't support grocery shopping, RedMart doesn't support transport), it will return an empty response with an explanation.
         """)
     
     return interface
@@ -664,7 +743,8 @@ Usage:
     clear;
     if :; then
         python MCP_server_grab.py --port 7860 &
-        python MCP_server_gojek.py --port 7862 &
+        python MCP_server_gojek.py --port 7861 &
+        python MCP_server_RedMart.py --port 7862 &
     fi
     jobs
     wait
@@ -681,5 +761,8 @@ Example queries:
     I want to go from Woodlands to CBD
     Order pizza from Pizza Hut to my home
     Order pizza from KFC to office
+    I need milk, bread, eggs and rice delivered
+    Order organic vegetables and premium meat
+    Order Asian meal kit for 2 people
 
 """

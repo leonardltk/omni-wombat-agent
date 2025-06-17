@@ -9,16 +9,18 @@ color_green = "\033[92m"
 color_reset = "\033[0m"
 print(f"{color_green}MCP_server_grab.py 456 {color_reset}")
 
-def _simulate_gps_location() -> str:
-    """Simulate a GPS lookup and return the current coordinates as 'longitude, latitude'."""
-    print(f"\n--- _simulate_gps_location()")
-    return f"<Current GPS location>"
+def get_current_location() -> str:
+    """
+    Perform GPS lookup and return the current location as a string.
+    """
+    print(f"\n--- getting_current_location()")
+    return f"<Current GPS location>: 80 Pasir Panjang"
 
 def grab_transport(
+    pickup_location: str,
     destination: str,
-    pickup_location: str = "<Current GPS location>",
-    service_type: str = "JustGrab",
-    schedule_time: str = "<Current Time>",
+    service_type: str,
+    schedule_time: str,
 ) -> str:
     """Book a Grab transport service.
     
@@ -33,7 +35,7 @@ def grab_transport(
         
     Note:
         When using this function through MCP, if pickup_location or schedule_time are not provided,
-        they will automatically use the MCP default values:
+        Use the default values:
         - pickup_location defaults to "<Current GPS location>"
         - schedule_time defaults to "<Current Time>"
     """
@@ -43,7 +45,7 @@ def grab_transport(
 
     # Resolve pickup point (use GPS fallback if none provided)
     if pickup_location.strip() == '':
-        pickup_point = _simulate_gps_location()
+        pickup_point = get_current_location()
     else:
         pickup_point = pickup_location.strip()
 
@@ -139,10 +141,97 @@ def grab_food(restaurant: str, items: str, delivery_address: str) -> str:
     print(f"{color_green}result_str = {result_str}{color_reset}")
     return result_str
 
+def grab_grocery(items: str, delivery_address: str, store_preference: str = "Any") -> str:
+    """Order groceries through GrabMart.
+    
+    Args:
+        items: Grocery items to order (comma-separated)
+        delivery_address: Address for grocery delivery
+        store_preference: Preferred store (Any, FairPrice, Cold Storage, Giant). MCP default: "Any"
+        
+    Returns:
+        JSON string with grocery order details
+    """
+    print(f"\n--- {color_green}grab_grocery({json.dumps(locals(), indent=4, ensure_ascii=False)}{color_reset})")
+    
+    # Simulate grocery ordering logic
+    order_id = f"GM{random.randint(100000, 999999)}"
+    item_list = [item.strip() for item in items.split(',') if item.strip()]
+    
+    # Simulate grocery pricing
+    grocery_prices = {
+        "milk": 3.50,
+        "bread": 2.80,
+        "eggs": 4.20,
+        "rice": 8.90,
+        "chicken": 12.50,
+        "vegetables": 5.60,
+        "fruits": 6.80,
+        "yogurt": 4.50,
+        "cheese": 7.20,
+        "butter": 5.40,
+        "oil": 6.30,
+        "pasta": 3.90,
+        "cereal": 8.50,
+        "juice": 4.80,
+        "detergent": 9.20,
+        "toilet paper": 12.80,
+        "shampoo": 8.90,
+        "soap": 3.60
+    }
+    
+    total_price = 0
+    order_items = []
+    
+    for item in item_list:
+        item_lower = item.lower()
+        # Find matching item or use default price
+        price = next((price for key, price in grocery_prices.items() if key in item_lower), 5.00)
+        total_price += price
+        order_items.append({"item": item, "price": f"${price:.2f}"})
+    
+    # Determine store based on preference
+    available_stores = ["FairPrice", "Cold Storage", "Giant", "Sheng Siong"]
+    if store_preference == "Any":
+        selected_store = random.choice(available_stores)
+    else:
+        selected_store = store_preference if store_preference in available_stores else "FairPrice"
+    
+    delivery_fee = 3.99
+    total_with_delivery = total_price + delivery_fee
+    estimated_delivery = random.randint(60, 120)  # Groceries take longer
+    
+    # Prepare structured output
+    result = {
+        "platform": "Grab",
+        "service": "GrabMart",
+        "grocery_items": item_list,
+        "store": selected_store,
+        "delivery_address": delivery_address,
+        "estimated_delivery_minutes": estimated_delivery,
+        "total_price": f"${total_with_delivery:.2f}",
+        "delivery_fee": f"${delivery_fee:.2f}"
+    }
+    result_str = json.dumps(result, indent=2)
+    print(f"{color_green}result_str = {result_str}{color_reset}")
+    return result_str
+
+def do_nothing() -> str:
+    """Do nothing, just return empty string.
+        
+    Returns:
+        Empty string
+        
+    Note:
+        When none of the features are available, use this formatting instead.
+    """
+    print(f"\n--- {color_green}do_nothing({json.dumps(locals(), indent=4, ensure_ascii=False)}{color_reset})")
+    return ""
+
 def main(port: int = 7860):
     # Create separate interfaces for each function
     transport_demo = gr.Interface(
-            fn=grab_transport,
+        fn=grab_transport,
         inputs=[
             gr.Textbox(label="Pickup Location", placeholder="e.g., Orchard Road (leave blank for current location)"),
             gr.Textbox(label="Destination", placeholder="e.g., Marina Bay Sands"),
@@ -166,10 +255,41 @@ def main(port: int = 7860):
         description="Order food through GrabFood"
     )
 
-    # Combine both interfaces in a tabbed interface
+    grocery_demo = gr.Interface(
+        fn=grab_grocery,
+        inputs=[
+            gr.Textbox(label="Grocery Items", placeholder="e.g., milk, bread, eggs, rice"),
+            gr.Textbox(label="Delivery Address", placeholder="e.g., 123 Main Street"),
+            gr.Dropdown(choices=["Any", "FairPrice", "Cold Storage", "Giant", "Sheng Siong"], 
+                       label="Store Preference", value="Any")
+        ],
+        outputs=gr.JSON(label="Grocery Order Details"),
+        title="Grab Grocery (GrabMart)",
+        description="Order groceries through GrabMart"
+    )
+
+    do_nothing_demo = gr.Interface(
+        fn=do_nothing,
+        inputs=[],
+        outputs=gr.JSON(),
+        title='',
+        description='',
+    )
+
+    # Combine all interfaces in a tabbed interface
     demo = gr.TabbedInterface(
-        [transport_demo, food_demo],
-        ["Transport", "Food"],
+        [
+            transport_demo, 
+            food_demo, 
+            grocery_demo,
+            do_nothing_demo,
+        ],
+        [
+            "Transport", 
+            "Food", 
+            "Grocery",
+            "Do Nothing",
+        ],
         title="Grab Services"
     )
 

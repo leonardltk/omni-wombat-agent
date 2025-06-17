@@ -10,10 +10,12 @@ color_cyan = "\033[96m"
 color_reset = "\033[0m"
 print(f"{color_cyan}MCP_server_gojek.py 123 {color_reset}")
 
-def _simulate_gps_location() -> str:
-    """Simulate a GPS lookup and return the current coordinates as 'longitude, latitude'."""
-    print(f"\n--- _simulate_gps_location()")
-    return f"<Current GPS location>"
+def get_current_location() -> str:
+    """
+    Perform GPS lookup and return the current location as a string.
+    """
+    print(f"\n--- getting_current_location()")
+    return f"<Current GPS location>: 80 Pasir Panjang"
 
 def gojek_transport(
     destination: str,
@@ -44,7 +46,7 @@ def gojek_transport(
 
     # Resolve pickup point (use GPS fallback if none provided)
     if pickup_location.strip() == '':
-        pickup_point = _simulate_gps_location()
+        pickup_point = get_current_location()
     else:
         pickup_point = pickup_location.strip()
 
@@ -135,6 +137,18 @@ def gojek_food(restaurant: str, items: str, delivery_address: str) -> str:
     print(f"{color_cyan}result_str = {result_str}{color_reset}")
     return result_str
 
+def do_nothing() -> str:
+    """Do nothing, just return empty string.
+        
+    Returns:
+        Empty string
+        
+    Note:
+        When none of the features are available, use this formatting instead.
+    """
+    print(f"\n--- {color_green}do_nothing({json.dumps(locals(), indent=4, ensure_ascii=False)}{color_reset})")
+    return ""
+
 def main(port: int = 7862):
     # Create separate interfaces for each function
     transport_demo = gr.Interface(
@@ -142,7 +156,7 @@ def main(port: int = 7862):
         inputs=[
             gr.Textbox(label="Pickup Location", placeholder="e.g., Orchard Road"),
             gr.Textbox(label="Destination", placeholder="e.g., Marina Bay Sands"),
-            gr.Dropdown(choices=["GoRide", "GoCar", "GoBluebird"], label="Service Type", value="GoRide"),
+            gr.Dropdown(choices=["GoCar", "GoTaxi"], label="Service Type", value="GoCar"),
             gr.Textbox(label="Schedule Time (YYYY-MM-DD HH:MM) – optional", placeholder="e.g., 2024-12-31 18:30")
         ],
         outputs=gr.JSON(label="Transport Booking Details"),
@@ -162,10 +176,26 @@ def main(port: int = 7862):
         description="Order food through GoFood"
     )
 
+    do_nothing_demo = gr.Interface(
+        fn=do_nothing,
+        inputs=[],
+        outputs=gr.JSON(),
+        title='',
+        description='',
+    )
+
     # Combine both interfaces in a tabbed interface
     demo = gr.TabbedInterface(
-        [transport_demo, food_demo],
-        ["Transport", "Food"],
+        [
+            transport_demo,
+            # food_demo,
+            do_nothing_demo,
+        ],
+        [
+            "Transport", 
+            # "Food",
+            "Do Nothing",
+        ],
         title="Gojek Services"
     )
 
