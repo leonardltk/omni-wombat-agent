@@ -8,7 +8,6 @@ import pdb
 
 color_cyan = "\033[96m"
 color_reset = "\033[0m"
-print(f"{color_cyan}MCP_server_gojek.py 123 {color_reset}")
 
 def get_current_location() -> str:
     """

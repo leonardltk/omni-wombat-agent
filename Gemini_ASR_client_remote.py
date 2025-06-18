@@ -1,23 +1,24 @@
 #!/usr/bin/env python
 """
-ASR_client_remote.py - Speech-to-text front-end that streams recognised text to the
-multi-server aggregator exposed by `mistral_client_remote.py` (now running as an MCP
-server on http://127.0.0.1:7863).
+    Gemini_ASR_client_remote.py - Speech-to-text front-end using Google Cloud Speech-to-Text
+    that streams recognised text to the multi-server aggregator exposed by 
+    `mistral_client_remote.py` (now running as an MCP server on http://127.0.0.1:7863).
 
 Workflow:
 1. Record or upload an audio clip (microphone/upload via Gradio UI).
-2. Transcribe the audio to text.
+    2. Transcribe the audio to text using Google Cloud Speech-to-Text.
 3. Send the recognised text - together with a user-selectable query mode - to the
    MCP aggregator via the Gradio Client SDK.
 4. Display both the recognised text and the aggregator JSON response.
 
 To start the application:
-    python ASR_client_remote.py
-Point your browser to http://localhost:7864
+        python Gemini_ASR_client_remote.py
+    Point your browser to http://localhost:7865
 
 The script assumes that:
     * `mistral_client_remote.py` is already running on port 7863 with
       `mcp_server=True`.
+        * You have authenticated with Google Cloud CLI: `gcloud auth application-default login`
 """
 
 import os
@@ -32,7 +33,7 @@ import gradio as gr
 import soundfile as sf
 from gradio_client import Client
 
-from openai import OpenAI
+
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())  # read local .env file
 
@@ -53,37 +54,84 @@ print(f"{COLOR_CYAN}Available endpoints: {aggregator_client.endpoints}{COLOR_RES
 print(f"{COLOR_CYAN}API info: {aggregator_client.view_api()}{COLOR_RESET}")
 
 # -----------------------------------------------------------------------------
-# ASR utilities
+# ASR utilities (Google Cloud Speech-to-Text)
 # -----------------------------------------------------------------------------
-# Create OpenAI client
-assert os.getenv("OPENAI_API_KEY") is not None, "OPENAI_API_KEY is not set in environment"
-OPENAI_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# import google.generativeai as genai
+from google import genai
+from google.genai import types
 
-def transcribe_audio(audio_path: str) -> str:
+assert os.getenv("GOOGLE_API_KEY") is not None
+
+# Ensure GOOGLE_API_KEY is set in your environment
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+# genai.configure(api_key=GOOGLE_API_KEY)
+
+## init model
+MODEL_NAME_FLASH = "models/gemini-1.5-flash"
+MODEL_NAME_FLASH = "models/gemini-2.0-flash"
+
+client = genai.Client(api_key=GOOGLE_API_KEY)
+
+if False:
+    audio_path = "audio_files/Book_a_taxi_from_Choa_Chu_Kang_to_Ang_Mo_Kio_at_6pm.wav"
+    with open(audio_path, 'rb') as f:
+        audio_bytes = f.read()
+
+    response = client.models.generate_content(
+    model='gemini-2.0-flash',
+    contents=[
+        'Describe this audio clip',
+        types.Part.from_bytes(
+        data=audio_bytes,
+        mime_type='audio/mp3',
+        )
+    ]
+    )
+    print(response.text)
+    # The audio clip sounds like speech, possibly related to booking a taxi from Jajucang to Ambonville at 6 PM.
+
+    response = client.models.generate_content( model='gemini-2.0-flash', contents=[ 'Describe this audio clip', types.Part.from_bytes( data=audio_bytes, mime_type='audio/wav', ) ] )
+    response = client.models.generate_content( model='gemini-2.0-flash', contents=[ 'Generate a transcript of the speech in singaporean context ', types.Part.from_bytes( data=audio_bytes, mime_type='audio/wav', ) ] )
+    response = client.models.generate_content( model='gemini-2.0-flash', contents=[ 'Transcribe this audio clip (in singaporean context) ', types.Part.from_bytes( data=audio_bytes, mime_type='audio/wav', ) ] )
+    print(response.text)
+
+    myfile = client.files.upload(file='path/to/sample.mp3')
+    prompt = 'Generate a transcript of the speech.'
+
+    response = client.models.generate_content(
+    model='gemini-2.0-flash',
+    contents=[prompt, myfile]
+    )
+
+    print(response.text)
+
+    pdb.set_trace()
+
+def transcribe_audio(audio_path: str, transcribe_prompt: str = 'Transcribe this audio clip (in singaporean context) : ') -> str:
     """
-    https://platform.openai.com/docs/guides/speech-to-text
-    model = str
-        "whisper-1"
-        "gpt-4o-mini-transcribe"
-        "gpt-4o-transcribe"
+    Transcribes audio using Gemini Flash
+    https://ai.google.dev/gemini-api/docs/audio
     """
+
     try:
         print(f"{COLOR_CYAN}audio_path = {audio_path}{COLOR_RESET}")
-        # ASR
-        audio_file = open(audio_path, "rb")
-        transcription = OPENAI_client.audio.transcriptions.create(
-            model="gpt-4o-transcribe", 
-            file=audio_file
-        )
 
-        # Extract transcription text
-        transcription_json = transcription.json()
-        transcription_text = transcription.text
+        with open(audio_path, 'rb') as f:
+            audio_bytes = f.read()
+
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=[
+                transcribe_prompt,
+                types.Part.from_bytes( data=audio_bytes, mime_type='audio/wav', )
+            ]
+        )
+        print(f"{COLOR_CYAN}response = {response}{COLOR_RESET}")
+        print(f"{COLOR_CYAN}response.text = {response.text}{COLOR_RESET}")
+
+        transcription_text = response.text
         print(f"{COLOR_CYAN}Transcription: {transcription_text}{COLOR_RESET}")
-        """
-            transcription.json = '{"text":"Testing 1 2 3","logprobs":null}'
-            transcription.text = "Testing 1 2 3"
-        """
+
     except Exception as e:
         traceback.print_exc()
         print(f"Error: {e}")
@@ -170,7 +218,6 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
     # 1. Transcribe audio to text
     try:
         # Perform ASR here
-        # recognised_text = "Book taxi from Woodlands to MBS at 6pm"
         recognised_text = transcribe_audio(audio)
     except Exception as e:
         traceback.print_exc()
@@ -210,11 +257,7 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
             recognised_text,
             f"❌ Error: Failed to call aggregator: {e}",
             "", "", "",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "", "", "", "", "",
         )
 
     # If the aggregator returned the expected 9-element tuple, unpack it.
@@ -281,8 +324,8 @@ def transcribe_and_query(audio: str, query_mode: str, maintain_history: bool = T
 # -----------------------------------------------------------------------------
 # Gradio UI
 # -----------------------------------------------------------------------------
-with gr.Blocks(title="ASR → MCP Aggregator") as demo:
-    gr.Markdown("# 🎙️ ASR Client → MCP Aggregator")
+with gr.Blocks(title="Google ASR → MCP Aggregator") as demo:
+    gr.Markdown("# 🎙️ Google ASR Client → MCP Aggregator")
     gr.Markdown("Record or upload speech, then pass the recognised text to the **Mistral MCP** aggregator supporting **Grab**, **Gojek**, and **RedMart** platforms.")
 
     with gr.Row():
@@ -392,7 +435,7 @@ with gr.Blocks(title="ASR → MCP Aggregator") as demo:
     """)
 
 if __name__ == "__main__":
-    demo.launch(server_port=7864, share=False, debug=True)
+    demo.launch(server_port=7865, share=False, debug=True) 
     
 """
 cd ~/Codes/LLM/OpenAI/gradio_mcp
@@ -401,6 +444,6 @@ conda deactivate
 conda activate gradio_mcp
 
 clear; \
-    python ASR_client_remote.py
+    python Gemini_ASR_client_remote.py
 
 """

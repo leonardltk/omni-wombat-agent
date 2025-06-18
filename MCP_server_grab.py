@@ -7,7 +7,6 @@ import argparse
 
 color_green = "\033[92m"
 color_reset = "\033[0m"
-print(f"{color_green}MCP_server_grab.py 456 {color_reset}")
 
 def get_current_location() -> str:
     """

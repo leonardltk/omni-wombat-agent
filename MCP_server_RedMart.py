@@ -7,7 +7,6 @@ import argparse
 
 color_red = "\033[91m"
 color_reset = "\033[0m"
-print(f"{color_red}MCP_server_RedMart.py initialized{color_reset}")
 
 def redmart_grocery(items: str, delivery_address: str, delivery_slot: str = "Next Available", membership_tier: str = "Standard") -> str:
     """Order groceries through RedMart.
